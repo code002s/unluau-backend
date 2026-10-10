@@ -15,13 +15,12 @@
 //! - No changes to other variables that would affect the result.
 
 use super::super::common::{
-    AstBlock, AstExpr, AstModule, AstStmt, AstTableConstructor, AstTableField, AstRecordField, AstTableKey,
+    AstBlock, AstExpr, AstModule, AstStmt, AstTableConstructor, AstTableField, AstRecordField, AstTableKey, AstLValue,
 };
 use super::ReadabilityContext;
 use super::walk::{self, AstRewritePass};
 use crate::ast::traverse::BlockKind;
 use crate::ast::common::{AstBindingRef, AstNameRef};
-use crate::hir::LocalId;
 
 pub(super) fn apply(module: &mut AstModule, context: ReadabilityContext) -> bool {
     let _ = context.target;
@@ -42,77 +41,95 @@ impl AstRewritePass for TableSugarPass {
             if let AstStmt::LocalDecl(decl) = &old_stmts[i]
                 && decl.bindings.len() == 1
                 && decl.values.len() == 1
-                && matches!(decl.values[0], AstExpr::TableConstructor(ref table))
-                && table.fields.is_empty()
             {
-                let binding_id = decl.bindings[0].id;
-                let mut table_elements = Vec::new();
-                let mut last_assignment_idx = i;
+                if let AstExpr::TableConstructor(table) = &decl.values[0] {
+                    if table.fields.is_empty() {
+                        let binding_id = decl.bindings[0].id;
+                        let mut table_elements = Vec::new();
+                        let mut last_assignment_idx = i;
 
-                // Look ahead for: t.k = v
-                for j in (i + 1)..old_stmts.len() {
-                    match &old_stmts[j] {
-                        AstStmt::Assign(assign) => {
-                            if let AstExpr::FieldAccess(field) = &assign.targets[0]
-                                && matches!(field.base, AstExpr::Var(AstNameRef::Local(ref id)))
-                                && *id == binding_id
-                            {
-                                // Valid assignment, collect it
-                                table_elements.push((field.field.clone(), assign.values[0].clone()));
-                                last_assignment_idx = j;
-                            } else {
-                                // Assignment to something else - this is okay, but does it read 't'?
-                                if contains_local_read(&assign.targets[0], binding_id) || assign.values.iter().any(|v| contains_local_read(v, binding_id)) {
-                                    break;
+                        // Look ahead for: t.k = v
+                        for j in (i + 1)..old_stmts.len() {
+                            match &old_stmts[j] {
+                                AstStmt::Assign(assign) => {
+                                    if let AstLValue::FieldAccess(field) = &assign.targets[0] {
+                                        if let AstExpr::Var(AstNameRef::Local(id)) = &field.base {
+                                            if let AstBindingRef::Local(lid) = binding_id {
+                                                if *id == lid {
+                                                    // Valid assignment, collect it
+                                                    table_elements.push((field.field.clone(), assign.values[0].clone()));
+                                                    last_assignment_idx = j;
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        // Assignment to something else - this is okay, but does it read 't'?
+                                        if contains_local_read_lvalue(&assign.targets[0], binding_id) || assign.values.iter().any(|v| contains_local_read(v, binding_id)) {
+                                            break;
+                                        }
+                                    }
+                                }
+                                AstStmt::CallStmt(call) => {
+                                    match &call.call {
+                                        crate::ast::common::AstCallKind::Call(c) => {
+                                            if contains_local_read(&c.callee, binding_id) {
+                                                break;
+                                            }
+                                        }
+                                        crate::ast::common::AstCallKind::MethodCall(c) => {
+                                            if contains_local_read(&c.receiver, binding_id) {
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                stmt => {
+                                    if contains_local_read_stmt(stmt, binding_id) {
+                                        break;
+                                    }
                                 }
                             }
                         }
-                        AstStmt::CallStmt(call) => {
-                            if contains_local_read(&call.call.callee, binding_id) {
-                                break;
+
+                        if !table_elements.is_empty() {
+                            // Transform to: local t = { ... }
+                            let new_table = AstExpr::TableConstructor(Box::new(AstTableConstructor {
+                                fields: table_elements
+                                    .into_iter()
+                                    .map(|(k, v)| AstTableField::Record(AstRecordField {
+                                        key: AstTableKey::Name(k),
+                                        value: v,
+                                    }))
+                                    .collect(),
+                                allocation: crate::hir::HirTableAllocation::Synthetic,
+                            }));
+
+                            let mut new_decl = (*decl).clone();
+                            new_decl.values = vec![new_table];
+
+                            new_stmts.push(AstStmt::LocalDecl(new_decl));
+
+                            // Keep the statements that were NOT assignments to 't'.
+                            for k in (i + 1)..=last_assignment_idx {
+                                if let AstStmt::Assign(assign) = &old_stmts[k] {
+                                    if let AstLValue::FieldAccess(field) = &assign.targets[0] {
+                                        if let AstExpr::Var(AstNameRef::Local(id)) = &field.base {
+                                            if let AstBindingRef::Local(lid) = binding_id {
+                                                if *id == lid {
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                new_stmts.push(old_stmts[k].clone());
                             }
-                        }
-                        stmt => {
-                            if contains_local_read_stmt(stmt, binding_id) {
-                                break;
-                            }
-                        }
-                    }
-                }
 
-                if !table_elements.is_empty() {
-                    // Transform to: local t = { ... }
-                    let new_table = AstExpr::TableConstructor(Box::new(AstTableConstructor {
-                        fields: table_elements
-                            .into_iter()
-                            .map(|(k, v)| AstTableField::Record(AstRecordField {
-                                key: AstTableKey::Name(k),
-                                value: v,
-                            }))
-                            .collect(),
-                        allocation: crate::hir::HirTableAllocation::Dynamic,
-                    }));
-
-                    let mut new_decl = decl.clone();
-                    new_decl.values = vec![new_table];
-
-                    new_stmts.push(AstStmt::LocalDecl(Box::new(new_decl)));
-
-                    // Keep the statements that were NOT assignments to 't'.
-                    for k in (i + 1)..=last_assignment_idx {
-                        if let AstStmt::Assign(assign) = &old_stmts[k]
-                            && matches!(assign.targets[0], AstExpr::FieldAccess(ref field))
-                            && matches!(field.base, AstExpr::Var(AstNameRef::Local(ref id)))
-                            && *id == binding_id
-                        {
+                            i = last_assignment_idx + 1;
+                            changed = true;
                             continue;
                         }
-                        new_stmts.push(old_stmts[k].clone());
                     }
-
-                    i = last_assignment_idx + 1;
-                    changed = true;
-                    continue;
                 }
             }
 
@@ -123,12 +140,31 @@ impl AstRewritePass for TableSugarPass {
         block.stmts = new_stmts;
         changed
     }
-
 }
 
-fn contains_local_read(expr: &AstExpr, id: crate::hir::LocalId) -> bool {
+fn contains_local_read_lvalue(lval: &AstLValue, id: AstBindingRef) -> bool {
+    match lval {
+        AstLValue::Name(name) => {
+            if let AstNameRef::Local(id_found) = name {
+                if let AstBindingRef::Local(lid) = id {
+                    return *id_found == lid;
+                }
+            }
+            false
+        }
+        AstLValue::FieldAccess(field) => contains_local_read(&field.base, id),
+        AstLValue::IndexAccess(idx) => contains_local_read(&idx.base, id),
+    }
+}
+
+pub(super) fn contains_local_read(expr: &AstExpr, id: AstBindingRef) -> bool {
     match expr {
-        AstExpr::Var(AstNameRef::Local(id_found)) => *id_found == id,
+        AstExpr::Var(AstNameRef::Local(id_found)) => {
+            if let AstBindingRef::Local(lid) = id {
+                return *id_found == lid;
+            }
+            false
+        }
         AstExpr::Binary(bin) => contains_local_read(&bin.lhs, id) || contains_local_read(&bin.rhs, id),
         AstExpr::Unary(un) => contains_local_read(&un.expr, id),
         AstExpr::Call(call) => {
@@ -153,22 +189,23 @@ fn contains_local_read(expr: &AstExpr, id: crate::hir::LocalId) -> bool {
     }
 }
 
-fn contains_local_read_stmt(stmt: &AstStmt, id: crate::hir::LocalId) -> bool {
+fn contains_local_read_stmt(stmt: &AstStmt, id: AstBindingRef) -> bool {
     match stmt {
         AstStmt::Assign(assign) => {
-            // We only care about reads. Writing to the variable is not a read.
-            // But the RHS definitely can be a read.
-            assign.values.iter().any(|v| contains_local_read(v, id)) || assign.targets.iter().any(|t| contains_local_read(t, id))
-            // Note: lhs can be a read if it's a field access (the base is read)
+            assign.values.iter().any(|v| contains_local_read(v, id)) || assign.targets.iter().any(|t| contains_local_read_lvalue(t, id))
         }
-        AstStmt::CallStmt(call) => contains_local_read(&call.call.callee, id),
+        AstStmt::CallStmt(call) => {
+            match &call.call {
+                crate::ast::common::AstCallKind::Call(c) => contains_local_read(&c.callee, id),
+                crate::ast::common::AstCallKind::MethodCall(c) => contains_local_read(&c.receiver, id),
+            }
+        }
         AstStmt::Return(ret) => ret.values.iter().any(|v| contains_local_read(v, id)),
         AstStmt::If(if_s) => {
             contains_local_read(&if_s.cond, id) ||
             if_s.then_block.stmts.iter().any(|s| contains_local_read_stmt(s, id)) ||
             if_s.else_block.as_ref().map_or(false, |b| b.stmts.iter().any(|s| contains_local_read_stmt(s, id)))
         }
-        // ... other stmts
         _ => false,
     }
 }
