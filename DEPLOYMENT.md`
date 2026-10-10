@@ -1,0 +1,54 @@
+# 🚀 Deployment Guide for unluac-rs Ecosystem
+
+This guide explains how to deploy the full-stack decompiler from source to a live environment.
+
+## 🛠 1. System Requirements
+- **Rust**: Latest stable version (`rustup update`)
+- **Node.js**: v18+ and `npm`
+- **Python**: 3.8+ (for the test runner)
+- **OS**: Windows, Linux, or macOS
+
+## 📦 2. Installation & Build
+
+### A. Build the Core Engine
+```bash
+cd unluac-rs
+cargo build --release
+```
+
+### B. Build the API Server
+1. Copy `Cargo.toml_server` to `Cargo.toml` in a new server directory.
+2. Run:
+```bash
+cargo build --release
+```
+
+### C. Build the Web Workspace
+```bash
+cd packages/unluac-web
+npm install
+npm run build
+```
+
+## 🌐 3. Launching the System
+
+### Step 1: Start the Backend
+Run the compiled server binary:
+```bash
+./target/release/unluac-server
+```
+The server will start on `http://localhost:3000`.
+
+### Step 2: Start the Frontend
+If developing, run `npm start`. If deployed, serve the `dist` folder using Nginx or Apache.
+
+## 🧪 4. Running Quality Assurance
+To ensure the decompiler is outputting the cleanest possible code:
+1. Place your `.luauc` and `.lua` pairs in `test/fixtures/`.
+2. Run the validator:
+```bash
+python test_runner.py
+```
+
+## ⚙️ 5. Customizing the Brain
+To add new naming patterns or services, edit `unluac-rs/patterns.json`. The server will load these patterns automatically to recover more variable names.

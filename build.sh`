@@ -1,0 +1,25 @@
+#!/bin/bash
+# Master build script for unluac-rs ecosystem
+
+echo "🚀 Starting Full Build of unluac-rs Ecosystem..."
+
+# 1. Build the Core Engine
+echo "📦 Building Core Engine..."
+cd unluac-rs
+cargo build --release
+cd ..
+
+# 2. Build the API Server
+echo "🌐 Building API Server..."
+# Assuming server.rs is moved to a cargo project for proper build
+# For now, we treat it as a standalone source to be compiled
+rustc server.rs -o unluac-server --extern axum=... --extern tokio=...
+
+# 3. Build the Web Frontend
+echo "💻 Building Web Frontend..."
+cd packages/unluac-web
+npm install
+npm run build
+cd ../..
+
+echo "✅ Everything is built! Run ./unluac-server and open the web app."
