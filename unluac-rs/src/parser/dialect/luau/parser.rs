@@ -414,12 +414,21 @@ impl LuauParserState {
 
         while word_pc < words.len() {
             let word = words[word_pc];
-            let opcode_byte = (word & 0xff) as u8;
-            let opcode =
-                LuauOpcode::try_from(opcode_byte).map_err(|invalid| ParseError::InvalidOpcode {
+            let mut opcode_byte = (word & 0xff) as u8;
+
+            // Roblox-encoded opcodes: (op * 227) mod 256.
+            // We attempt to decode as standard Luau first; if it fails with an invalid opcode,
+            // we try the Roblox inverse: (raw * 203) mod 256.
+            let opcode = LuauOpcode::try_from(opcode_byte)
+                .or_else(|invalid| {
+                    let decoded = opcode_byte.wrapping_mul(203);
+                    LuauOpcode::try_from(decoded).map_err(|_| invalid)
+                })
+                .map_err(|invalid| ParseError::InvalidOpcode {
                     pc: word_pc,
                     opcode: invalid,
                 })?;
+
             if bytecode_version < opcode.min_bytecode_version() {
                 return Err(ParseError::UnsupportedValue {
                     field: "luau opcode for bytecode version",
