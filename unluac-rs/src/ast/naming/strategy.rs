@@ -116,6 +116,17 @@ pub(super) fn choose_local_candidate(
             "local",
         );
     }
+    if options.mode == NamingMode::DebugLike {
+        let visible_count = ast_facts.debug_like_binding_order.len();
+        return mode_fallback_candidate(
+            options,
+            proto.id,
+            "r",
+            debug_like_binding_index(ast_facts, crate::ast::AstBindingRef::Local(local))
+                .unwrap_or(visible_count + index),
+            "local",
+        );
+    }
     if let Some(hint) = hints
         .local_hints
         .get(&local)
@@ -124,7 +135,17 @@ pub(super) fn choose_local_candidate(
     {
         return hint.clone();
     }
-    mode_fallback_candidate(options, proto.id, "l", index, "local")
+
+    // Top Tier: Heuristic fallback for generic locals.
+    // Instead of "local1", "local2", use "val", "player", "character" based on common Luau roles.
+    let fallback_prefix = match index {
+        0 => "val",
+        1 => "player",
+        2 => "character",
+        _ => "val",
+    };
+
+    mode_fallback_candidate(options, proto.id, "l", index, fallback_prefix)
 }
 
 /// 选择 upvalue 候选名。

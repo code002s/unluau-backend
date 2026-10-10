@@ -25,11 +25,23 @@ impl AstRewritePass for BranchPrettyPass {
         let old_stmts = std::mem::take(&mut block.stmts);
         let mut flattened_stmts = Vec::with_capacity(old_stmts.len());
         let mut changed = false;
-        for stmt in old_stmts {
+        for mut stmt in old_stmts {
             let is_constant_if = matches!(
                 &stmt,
                 AstStmt::If(if_stmt) if matches!(if_stmt.cond, AstExpr::Boolean(_))
             );
+
+            // Top Tier: Boolean Return Folding
+            if let AstStmt::If(ref mut if_stmt) = stmt {
+                if fold_boolean_return(if_stmt) {
+                    flattened_stmts.push(AstStmt::Return(Box::new(AstReturn {
+                        values: vec![if_stmt.cond.clone()],
+                    })));
+                    changed = true;
+                    continue;
+                }
+            }
+
             let folded = if is_constant_if {
                 fold_constant_if(stmt)
             } else {
@@ -124,6 +136,33 @@ fn transform_to_guard_clause(if_stmt: &mut AstIf) -> bool {
         // However, since the decompiler's flatten_terminating_if expects a specific shape,
         // we just flip the condition and leave it as a return-guard.
         return true;
+    }
+    false
+}
+
+fn fold_boolean_return(if_stmt: &mut AstIf) -> bool {
+    // Pattern: if cond then return true else return false end  => return cond
+    // Pattern: if cond then return a else return b end => return cond and a or b (or Luau if-expr)
+    if if_stmt.else_block.is_some() {
+        let then_stmts = &if_stmt.then_block.stmts;
+        let else_stmts = if_stmt.else_block.as_ref().unwrap().stmts.as_slice();
+
+        if then_stmts.len() == 1 && else_stmts.len() == 1 {
+            if let (AstStmt::Return(then_ret), AstStmt::Return(else_ret)) = (&then_stmts[0], &else_stmts[0]) {
+                if then_ret.values.len() == 1 && else_ret.values.len() == 1 {
+                    let val_then = &then_ret.values[0];
+                    let val_else = &else_ret.values[0];
+
+                    // Case 1: Boolean fold (true/false)
+                    if matches!(val_then, AstExpr::Boolean(true)) && matches!(val_else, AstExpr::Boolean(false)) {
+                        // Transform this if-stmt into a return of the condition
+                        // Note: Since we are in rewrite_stmt, we can't change the type of stmt here
+                        // without returning a Vec<AstStmt>. This is why we'll handle it in rewrite_block.
+                        return true;
+                    }
+                }
+            }
+        }
     }
     false
 }

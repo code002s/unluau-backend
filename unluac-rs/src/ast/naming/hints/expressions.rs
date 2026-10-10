@@ -69,6 +69,19 @@ pub(super) fn candidate_from_expr(expr: &AstExpr) -> Option<(String, NameSource)
             {
                 return Some((name, NameSource::ModulePath));
             }
+
+            // Professional Luau: Detect game:GetService("X") -> X
+            if let AstExpr::FieldAccess(field) = &call.callee
+                && field.field == "GetService"
+                && let AstExpr::Var(AstNameRef::Global(root)) = &field.base
+                && root.text == "game"
+                && let [AstExpr::String(service_name)] = call.args.as_slice()
+                && let Some(s_name) = service_name.as_utf8()
+                && let Some(normalized) = normalize_identifier(s_name)
+            {
+                return Some((normalized, NameSource::CallResult));
+            }
+
             call_result_name(&call.callee)
                 .map(|name| (name, NameSource::CallResult))
                 .unwrap_or_else(|| ("result".to_owned(), NameSource::ResultShape))

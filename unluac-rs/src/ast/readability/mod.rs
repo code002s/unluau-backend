@@ -13,6 +13,8 @@ mod control_flow;
 mod expr_analysis;
 pub(crate) use expr_analysis::expr_is_boolean_valued;
 mod field_access_sugar;
+mod table_sugar;
+mod luau_idioms;
 mod function_sugar;
 mod global_decl_pretty;
 mod goto_syntax_safety;
@@ -154,7 +156,18 @@ const PASS_DESCRIPTORS: &[PassDescriptor<AstInvalidation>] = &[
         depends_on: &[ControlFlowShape, ExprShape],
         invalidates: &[ExprShape],
     },
-    // ── Deferred phase ──
+    PassDescriptor {
+        name: "table-sugar",
+        phase: PassPhase::Deferred,
+        depends_on: &[StatementAdjacency, BindingStructure],
+        invalidates: &[StatementAdjacency, ExprShape, BindingStructure],
+    },
+    PassDescriptor {
+        name: "luau-idioms",
+        phase: PassPhase::Deferred,
+        depends_on: &[StatementAdjacency, BindingStructure],
+        invalidates: &[StatementAdjacency, ExprShape, BindingStructure],
+    },
     PassDescriptor {
         name: "materialize-temps",
         phase: PassPhase::Deferred,
@@ -226,6 +239,12 @@ const PASS_ENTRIES: &[ReadabilityPassEntry] = &[
     },
     ReadabilityPassEntry {
         apply: literal_fold::apply,
+    },
+    ReadabilityPassEntry {
+        apply: table_sugar::apply,
+    },
+    ReadabilityPassEntry {
+        apply: luau_idioms::apply,
     },
     ReadabilityPassEntry {
         apply: materialize_temps::apply,
