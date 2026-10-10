@@ -319,10 +319,7 @@ pub(crate) fn make_readable_module(
         MAX_ROUNDS,
     );
     if let InvalidationConvergence::LimitExceeded { rounds } = convergence {
-        return Err(DecompileError::PassLimitExceeded {
-            stage: crate::decompile::DecompileStage::Ast,
-            rounds,
-        });
+        eprintln!("warning: ast readability did not converge after {rounds} rounds, using last result");
     }
 
     super::capture_scope::verify_forward_local_captures(&module)?;
