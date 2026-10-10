@@ -76,7 +76,7 @@ impl<'a> Emitter<'a> {
             .iter()
             .map(|binding| {
                 let name = self.names.resolve_binding_ref(function, &binding.id)?;
-                let mut type_annotation = None;
+                let type_annotation;
 
                 // Infer type from the resolved name based on Luau professional patterns
                 type_annotation = match name.as_str() {

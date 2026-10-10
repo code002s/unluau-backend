@@ -105,6 +105,7 @@ impl<'a> NameResolver<'a> {
 }
 
 impl<'a> Emitter<'a> {
+    #[allow(dead_code)]
     pub(super) fn emit_local_binding(
         &self,
         binding: &AstLocalBinding,
