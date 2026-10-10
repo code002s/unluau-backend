@@ -21,6 +21,30 @@
   <a href="https://docs.rs/unluac">API Docs</a>
 </p>
 
+## 🌟 Decompiler Features
+
+**Built for today’s Luau.**
+
+### 🏢 Roblox API Model
+**Types that understand Roblox.**
+Generated signatures for Roblox classes, methods, properties, events, and callbacks feed conservative type recovery.
+`local Players: Players = game:GetService("Players")`
+
+### 🔄 Compiler Uninlining
+**Turns inlined bodies back into calls.**
+Eligible expanded bodies are matched to their local functions and folded back into readable call sites.
+`score(a) + score(b) + score(a)`
+
+### 📈 Type Propagation
+**Types flow through the program.**
+Bytecode metadata, builtin signatures, return packs, and dataflow recover parameter, return, local, and generic types.
+`function func(num1: number, bool1: boolean, str1: string, arg1, vec1: vector, buf1: buffer): string?`
+
+### 🏷️ Generated Names
+**Names match the evidence.**
+Debug data, Roblox API types, property access, constructors, and call signatures replace anonymous locals with useful names.
+`Players · player · connection`
+
 ## Introduction
 
 **Lua bytecode, made readable.** unluac-rs is a multi-dialect Lua decompiler written in Rust. It reconstructs readable source from compiled chunks, with a browser workspace for exploring the code and libraries for integrating decompilation into your own tools.
