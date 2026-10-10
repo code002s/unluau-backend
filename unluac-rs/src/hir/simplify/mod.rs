@@ -3,6 +3,7 @@
 //! 按失效标签调度 pass，共享当前 HIR 的闭包效果摘要；改写后刷新快照。
 
 mod boolean_shells;
+mod boolean_folding;
 mod branch_control_folding;
 mod branch_value_folding;
 mod call_frames;
@@ -36,6 +37,9 @@ mod temp_inline;
 mod temp_touch;
 mod string_interpolation;
 mod service_aliasing;
+mod table_optimizer;
+mod function_lifter;
+mod expression_folder;
 pub(crate) mod walk;
 
 use crate::debug::DebugFilters;
@@ -241,6 +245,12 @@ const PASS_DESCRIPTORS: &[PassDescriptor<HirInvalidation>] = &[
         depends_on: &[LocalBinding, BlockStructure],
         invalidates: &[LocalBinding, BlockStructure],
     },
+    PassDescriptor {
+        name: "boolean-folding",
+        phase: PassPhase::Normal,
+        depends_on: &[LogicalExpr, BooleanPattern],
+        invalidates: &[LogicalExpr, BooleanPattern],
+    },
     // ── Deferred phase ──
     PassDescriptor {
         name: "eliminate-decisions",
@@ -401,6 +411,18 @@ pub(super) fn simplify_hir(
                 }
                 if index == 26 {
                     return service_aliasing::simplify_service_aliasing_in_proto(proto);
+                }
+                if index == 27 {
+                    return boolean_folding::simplify_boolean_folding_in_proto(proto);
+                }
+                if index == 28 {
+                    return table_optimizer::simplify_tables_and_loops_in_proto(proto);
+                }
+                if index == 29 {
+                    return function_lifter::lift_anonymous_functions_in_proto(proto);
+                }
+                if index == 30 {
+                    return expression_folder::fold_expressions_in_proto(proto);
                 }
                 let effects = (matches!(index, 3 | 15 | 16 | 19)
                     || index == 4 && dialect == DecompileDialect::Luau)
