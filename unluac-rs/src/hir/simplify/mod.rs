@@ -35,6 +35,7 @@ mod table_constructors;
 mod temp_inline;
 mod temp_touch;
 mod string_interpolation;
+mod service_aliasing;
 pub(crate) mod walk;
 
 use crate::debug::DebugFilters;
@@ -234,6 +235,12 @@ const PASS_DESCRIPTORS: &[PassDescriptor<HirInvalidation>] = &[
         depends_on: &[LogicalExpr],
         invalidates: &[LogicalExpr],
     },
+    PassDescriptor {
+        name: "service-aliasing",
+        phase: PassPhase::Normal,
+        depends_on: &[LocalBinding, BlockStructure],
+        invalidates: &[LocalBinding, BlockStructure],
+    },
     // ── Deferred phase ──
     PassDescriptor {
         name: "eliminate-decisions",
@@ -391,6 +398,9 @@ pub(super) fn simplify_hir(
                 }
                 if index == 25 {
                     return string_interpolation::simplify_string_interpolation_in_proto(proto);
+                }
+                if index == 26 {
+                    return service_aliasing::simplify_service_aliasing_in_proto(proto);
                 }
                 let effects = (matches!(index, 3 | 15 | 16 | 19)
                     || index == 4 && dialect == DecompileDialect::Luau)
