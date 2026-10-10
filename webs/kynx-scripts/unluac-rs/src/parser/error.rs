@@ -1,0 +1,76 @@
+//! 这个文件定义 parser 层的错误类型。
+//!
+//! 错误里保留 offset 等定位信息，是为了让调试输出和回归测试可以直接定位
+//! 原始 chunk 的问题位置，而不是把底层读取细节泄漏到更高层。
+
+use thiserror::Error;
+
+/// 将 Lua 字节码解析成 raw 结构时可能产生的错误。
+#[derive(Debug, Error)]
+pub enum ParseError {
+    #[error("parser for dialect `{dialect}` is not implemented yet")]
+    UnsupportedDialect { dialect: &'static str },
+    #[error(
+        "unexpected end of input at offset {offset}: need {requested} bytes but only {remaining} remain"
+    )]
+    UnexpectedEof {
+        offset: usize,
+        requested: usize,
+        remaining: usize,
+    },
+    #[error("invalid Lua chunk signature at offset {offset}")]
+    InvalidSignature { offset: usize },
+    #[error("unsupported Lua version byte 0x{found:02x}")]
+    UnsupportedVersion { found: u8 },
+    #[error("unsupported PUC-Lua header format {found}")]
+    UnsupportedHeaderFormat { found: u8 },
+    #[error("unsupported {field} size {value} in bytecode chunk")]
+    UnsupportedSize { field: &'static str, value: u8 },
+    #[error("unsupported {field} value {value} in bytecode chunk")]
+    UnsupportedValue { field: &'static str, value: u64 },
+    #[error("integer overflow while decoding {field}: {value}")]
+    IntegerOverflow { field: &'static str, value: u64 },
+    #[error("{field} depth {found} exceeds the parser limit of {limit}")]
+    DepthLimit {
+        field: &'static str,
+        limit: usize,
+        found: usize,
+    },
+    #[error("{field} expansion {found} exceeds the parser budget of {limit}")]
+    ExpansionLimit {
+        field: &'static str,
+        limit: usize,
+        found: usize,
+    },
+    #[error("negative {field} value {value} is not valid in this bytecode chunk")]
+    NegativeValue { field: &'static str, value: i64 },
+    #[error("invalid constant tag {tag} at offset {offset}")]
+    InvalidConstantTag { offset: usize, tag: u8 },
+    #[error(
+        "luau closure const #{const_index} refers to proto {proto_index}, but current proto only exposes {child_count} child slots"
+    )]
+    InvalidLuauClosureProto {
+        const_index: usize,
+        proto_index: u32,
+        child_count: usize,
+    },
+    #[error("invalid opcode {opcode} at raw pc {pc}")]
+    InvalidOpcode { pc: usize, opcode: u8 },
+    #[error("missing SETLIST extra argument after raw pc {pc}")]
+    MissingSetListWord { pc: usize },
+    #[error("opcode `{opcode}` at raw pc {pc} must be followed by EXTRAARG")]
+    MissingExtraArgWord { pc: usize, opcode: &'static str },
+    #[error("opcode `{opcode}` at raw pc {pc} must be followed by EXTRAARG, found opcode {found}")]
+    InvalidExtraArgWord {
+        pc: usize,
+        opcode: &'static str,
+        found: u8,
+    },
+    #[error("unterminated string payload at offset {offset}")]
+    UnterminatedString { offset: usize },
+    #[error("failed to decode string payload at offset {offset} as {encoding}")]
+    StringDecode {
+        offset: usize,
+        encoding: &'static str,
+    },
+}

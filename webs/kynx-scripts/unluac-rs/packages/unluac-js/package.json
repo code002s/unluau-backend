@@ -1,0 +1,46 @@
+{
+  "name": "unluac-js",
+  "version": "1.4.4",
+  "private": true,
+  "description": "JavaScript wrapper package for the unluac WebAssembly build.",
+  "keywords": [
+    "lua",
+    "decompiler",
+    "luac",
+    "bytecode",
+    "wasm",
+    "luajit",
+    "luau"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/x3zvawq/unluac-rs.git",
+    "directory": "packages/unluac-js"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "25.5.0",
+    "tsdown": "0.21.7",
+    "typescript": "6.0.2"
+  }
+}

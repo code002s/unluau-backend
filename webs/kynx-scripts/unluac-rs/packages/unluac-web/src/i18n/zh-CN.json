@@ -1,0 +1,229 @@
+{
+  "app": {
+    "title": "unluac-web",
+    "subtitle": "Lua 反编译器"
+  },
+  "header": {
+    "settings": "设置",
+    "theme": {
+      "light": "浅色模式",
+      "dark": "深色模式",
+      "system": "跟随系统"
+    },
+    "language": "语言"
+  },
+  "filePanel": {
+    "title": "文件列表",
+    "dropHint": "拖拽字节码文件到此处",
+    "openFile": "打开文件",
+    "openFolder": "打开文件夹",
+    "empty": "暂无文件",
+    "status": {
+      "pending": "待处理",
+      "processing": "处理中",
+      "success": "成功",
+      "error": "失败",
+      "skipped": "已跳过（源文件）"
+    },
+    "noFiles": "没有匹配的文件",
+    "globDialog": {
+      "title": "输入文件匹配模式（glob）",
+      "cancel": "取消"
+    },
+    "batchWarning": "选中了 {count} 个文件，批量反编译可能需要一些时间，是否继续？",
+    "progress": "已完成 {done}/{total}",
+    "batchStats": "{success} 成功，{error} 失败",
+    "dismissStats": "关闭",
+    "contextMenu": {
+      "recompile": "重新反编译",
+      "compare": "对比…",
+      "download": "下载结果",
+      "remove": "移除"
+    },
+    "folderContextMenu": {
+      "removeFolder": "移除目录"
+    },
+    "sourceTag": "源码",
+    "fileDialect": "修改此文件的 Lua 方言"
+  },
+  "codeView": {
+    "placeholder": "选择一个文件开始反编译",
+    "copy": "复制",
+    "copied": "已复制",
+    "download": "下载",
+    "downloadAll": "下载全部",
+    "fontSize": "字号",
+    "error": "反编译失败",
+    "modified": "已修改",
+    "modifiedHint": "当前内容已被手动编辑，与原始反编译结果不同",
+    "restore": "恢复原始结果",
+    "restoreConfirm": "确定要放弃编辑并恢复为原始反编译结果吗？"
+  },
+  "tabs": {
+    "code": "源码",
+    "protos": "Proto",
+    "cfg": "CFG",
+    "diff": "对比",
+    "contextMenu": {
+      "close": "关闭",
+      "closeOthers": "关闭其他",
+      "closeRight": "关闭右侧",
+      "closeAll": "关闭全部"
+    }
+  },
+  "analysis": {
+    "loading": "正在分析…",
+    "noFile": "选择一个文件以查看分析结果",
+    "noData": "暂无结构化分析数据",
+    "noDataHint": "需要使用包含 decompileRich 导出的 WASM 模块",
+    "sourceFile": "该文件是源文件，无需反编译",
+    "error": "分析出错",
+    "selectProto": "选择一个 Proto",
+    "protoGraph": {
+      "root": "根 Proto",
+      "params": "参数",
+      "lines": "行",
+      "vararg": "变长参数",
+      "upvalues": "上值",
+      "constants": "常量",
+      "instructions": "指令"
+    },
+    "constants": {
+      "title": "常量",
+      "empty": "暂无常量",
+      "type": "类型",
+      "value": "值"
+    },
+    "cfgViewer": {
+      "proto": "Proto",
+      "entry": "入口",
+      "exit": "出口",
+      "blocks": "基本块",
+      "edges": "边",
+      "bytecode": "字节码",
+      "focusHint": "已聚焦 {block}（{hops} 跳邻域）。双击其他块可切换聚焦。",
+      "clearFocus": "显示全部"
+    }
+  },
+  "settings": {
+    "title": "设置",
+    "dialect": "Lua 方言",
+    "tabs": {
+      "general": "通用",
+      "advanced": "高级",
+      "parse": "解析",
+      "readability": "可读性",
+      "naming": "命名",
+      "generate": "生成",
+      "about": "关于"
+    },
+    "parse": {
+      "title": "解析选项",
+      "mode": "解析模式",
+      "stringEncoding": "字符串编码",
+      "stringDecodeMode": "字符串解码模式",
+      "ignoreDebug": "忽略调试信息"
+    },
+    "readability": {
+      "title": "可读性选项",
+      "returnInlineMaxComplexity": "return 内联最大复杂度",
+      "indexInlineMaxComplexity": "索引内联最大复杂度",
+      "argsInlineMaxComplexity": "参数内联最大复杂度",
+      "accessBaseInlineMaxComplexity": "访问基表内联最大复杂度"
+    },
+    "naming": {
+      "title": "命名选项",
+      "mode": "命名模式",
+      "debugLikeIncludeFunction": "debug-like 包含函数名"
+    },
+    "generate": {
+      "title": "生成选项",
+      "mode": "生成模式",
+      "indentWidth": "缩进宽度",
+      "maxLineLength": "最大行宽",
+      "quoteStyle": "引号风格",
+      "numberFormat": "数字格式",
+      "tableStyle": "表构造器风格",
+      "luauVectorConstructor": "Luau Vector 构造器",
+      "luauVectorLibrary": "可选库名",
+      "luauVectorConstructorName": "构造器名",
+      "comment": "生成注释"
+    },
+    "tips": {
+      "dialect": "只影响新导入的文件。点击文件的版本标签可单独修改方言。",
+      "generateMode": "生成器错误处理策略。strict: 遇到不支持语法或错误时停止；permissive: 尽可能输出。CLI: --generate-mode / -g",
+      "parseMode": "解析器严格程度。strict: 严格校验；permissive: 容忍不规范的字节码。CLI: --parse-mode / -p",
+      "stringEncoding": "字符串常量的解码编码。auto 会自动识别常见旧编码。CLI: --encoding / -e",
+      "stringDecodeMode": "字符串解码失败时的处理策略。strict: 报错；lossy: 替换为占位符。CLI: --decode-mode / -m",
+      "ignoreDebug": "仍解析并校验 debug 段，但不让其参与恢复，也不生成相关注释。CLI: --ignore-debug",
+      "returnInlineMaxComplexity": "return 语句中允许的最大内联表达式复杂度。CLI: --return-inline-max-complexity",
+      "indexInlineMaxComplexity": "表索引中允许的最大内联表达式复杂度。CLI: --index-inline-max-complexity",
+      "argsInlineMaxComplexity": "函数调用参数中允许的最大内联表达式复杂度。CLI: --args-inline-max-complexity",
+      "accessBaseInlineMaxComplexity": "表访问基表中允许的最大内联表达式复杂度。CLI: --access-base-inline-max-complexity",
+      "namingMode": "所有模式优先采用 debug 名。缺少时：debug-like 使用编号；simple 使用通用名和基本角色；heuristic 根据表达式、字段用途、模块路径和调用名推测。CLI: --naming-mode / -n",
+      "debugLikeIncludeFunction": "debug-like 名称中是否包含函数编号。CLI: --debug-like-include-function",
+      "indentWidth": "生成代码的缩进宽度（空格数）。CLI: --indent-width",
+      "maxLineLength": "生成代码的首选最大行宽。CLI: --max-line-length",
+      "quoteStyle": "字符串引号风格。prefer-double: 偏好双引号；prefer-single: 偏好单引号；min-escape: 选择最少转义的。CLI: --quote-style",
+      "numberFormat": "数字字面量格式。decimal: 普通数字；hex: 尽可能把整数字面量输出为 0x...。CLI: --number-format",
+      "tableStyle": "表构造器排版风格。compact: 紧凑；balanced: 均衡；expanded: 展开。CLI: --table-style",
+      "luauVectorConstructor": "使用显式构造器和 3D/4D 维度输出 Luau vector 常量。库名可选，构造器名和维度必填。CLI: --luau-vector-library / --luau-vector-constructor / --luau-vector-size",
+      "comment": "是否在生成的代码中输出注释和元信息。CLI: --comment"
+    },
+    "share": {
+      "button": "复制分享链接",
+      "copied": "链接已复制到剪贴板",
+      "cliButton": "复制 CLI 参数",
+      "cliCopied": "CLI 参数已复制",
+      "reset": "恢复默认设置"
+    },
+    "about": {
+      "title": "关于",
+      "repo": "GitHub 仓库",
+      "version": "版本",
+      "summary": "在浏览器里直接分析与反编译 Lua 字节码",
+      "description": "unluac-web 基于 unluac-rs 和 WebAssembly 构建，适合快速查看反编译结果、比对输出，并结合 Proto / CFG 视图做进一步分析。",
+      "metaTitle": "项目信息",
+      "highlights": {
+        "multiDialect": {
+          "title": "支持多版本多方言",
+          "description": "覆盖 Lua 5.1–5.5、LuaJIT 与 Luau，可按目标方言切换解析与生成策略。"
+        },
+        "localFirst": {
+          "title": "完全本地运行",
+          "description": "所有反编译和分析都在当前浏览器内完成，无需把字节码上传到服务器。"
+        },
+        "tooling": {
+          "title": "不止是导出源码",
+          "description": "除了源码结果，还可以批量处理、对比输出，并查看 Proto / CFG 等结构化分析信息。"
+        }
+      }
+    },
+    "importDialect": "新文件默认方言"
+  },
+  "diff": {
+    "left": "左侧",
+    "right": "右侧",
+    "selectFile": "选择文件",
+    "hint": "选择两个已反编译的文件进行对比"
+  },
+  "workspace": {
+    "local": "本地运行",
+    "files": "工作区",
+    "searchFiles": "搜索文件…",
+    "fileHint": "打开文件或文件夹即可开始，每个文件独立保留 Lua 版本。",
+    "history": "文件历史保存在当前浏览器",
+    "fileActions": "文件操作",
+    "headline": "从 Lua 字节码，",
+    "headlineAccent": "读回代码的结构。",
+    "description": "还原源码，探索程序结构，让编译后的 Lua 重新可读。一切都可以在浏览器中完成。",
+    "importHint": "不限扩展名，支持单文件与整个文件夹。",
+    "privacy": "文件在你的设备上处理，无需上传服务器。",
+    "multiDialect": "多方言支持",
+    "explore": "深入代码",
+    "exploreHint": "查看函数、常量与控制流。",
+    "analysis": "结构分析",
+    "wrapLines": "自动换行",
+    "settingsHint": "设置自动生效，每个文件独立保留自己的 Lua 方言。"
+  }
+}

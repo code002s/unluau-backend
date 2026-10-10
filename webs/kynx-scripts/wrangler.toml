@@ -1,0 +1,9 @@
+name = "kynx-scripts"
+main = "src/index.js"
+compatibility_date = "2026-09-19"
+
+# Create the namespace once:  npx wrangler kv namespace create SCRIPTS
+# then paste the printed id below.
+[[kv_namespaces]]
+binding = "SCRIPTS"
+id = "d56b7e95ff8840659251ef33121c6118"

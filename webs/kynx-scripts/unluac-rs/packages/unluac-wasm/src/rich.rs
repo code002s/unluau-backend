@@ -1,0 +1,321 @@
+//! WASM 桥接层的结构化返回类型与转换。
+//!
+//! 从 DecompileResult 投影 proto 元数据、CFG 和生成源码，序列化为前端使用的 JSON；
+//! 核心库不承担这些展示 DTO 或 serde 依赖。
+
+use serde::Serialize;
+
+use unluac::decompile::DecompileResult;
+use unluac::parser::{RawLiteralConst, RawProto, RawString, format_raw_instr};
+use unluac::structure::{BlockKind, CfgGraph, EdgeKind};
+use unluac::transformer::{LoweredProto, RawInstrRef, format_low_instr};
+
+// ── 顶层结果 ──────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WasmRichResult<'a> {
+    /// 反编译生成的源码或诊断伪源码
+    pub source: &'a str,
+    /// `source` 或 `diagnostic-pseudocode`
+    pub kind: &'static str,
+    /// proto 元数据（DFS 序展平）
+    pub protos: Vec<WasmProtoMeta>,
+    /// 每个 proto 的 CFG（与 protos 平行数组，index 一致）
+    pub cfgs: Vec<WasmProtoCfg>,
+}
+
+// ── Proto 元数据 ──────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WasmProtoMeta {
+    /// DFS 遍历序号（0 = 主 proto）
+    pub id: usize,
+    /// 源文件名（debug info）
+    pub name: Option<String>,
+    pub line_start: u32,
+    pub line_end: u32,
+    pub num_params: u8,
+    pub is_vararg: bool,
+    pub num_upvalues: usize,
+    pub num_constants: usize,
+    pub num_instructions: usize,
+    /// 常量池的字面量列表（人类可读形式）
+    pub constants: Vec<WasmConstant>,
+    /// 子 proto 的 DFS ID 列表
+    pub children: Vec<usize>,
+}
+
+/// 单个常量的可序列化投影。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WasmConstant {
+    /// 常量在池中的索引（0-based）
+    pub index: usize,
+    /// 类型标签：nil / boolean / integer / number / string / int64 / uint64 / complex
+    #[serde(rename = "type")]
+    pub ty: &'static str,
+    /// 人类可读的值表示
+    pub display: String,
+}
+
+// ── CFG ──────────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WasmProtoCfg {
+    pub proto_id: usize,
+    pub blocks: Vec<WasmCfgBlock>,
+    pub edges: Vec<WasmCfgEdge>,
+    pub entry_block: usize,
+    pub exit_block: usize,
+    /// 拓扑序 block ID 列表
+    pub block_order: Vec<usize>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WasmCfgBlock {
+    pub id: usize,
+    pub kind: &'static str,
+    /// 人类可读的 Low-IR 指令行
+    pub instructions: Vec<String>,
+    /// 对应的原始字节码指令行（通过 LoweringMap 映射）
+    pub raw_instructions: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WasmCfgEdge {
+    pub from: usize,
+    pub to: usize,
+    pub kind: &'static str,
+}
+
+// ── 投影逻辑 ────────────────────────────────────────────
+
+/// 从 `DecompileResult` 提取前端所需的结构化数据。
+pub fn project_rich_result(result: &DecompileResult) -> WasmRichResult<'_> {
+    let (source, kind) = result
+        .state
+        .generated
+        .as_ref()
+        .map(|g| (g.source.as_str(), <&'static str>::from(g.kind)))
+        .unwrap_or_default();
+
+    let mut protos = Vec::new();
+    let mut cfgs = Vec::new();
+
+    // 从 raw_chunk 提取 proto 元数据（DFS 序）
+    if let Some(raw_chunk) = &result.state.raw_chunk {
+        collect_proto_meta(&raw_chunk.main, &mut protos);
+    }
+
+    // 从 lowered + cfg + raw_chunk 提取 CFG 数据
+    if let (Some(lowered), Some(cfg_graph)) = (&result.state.lowered, &result.state.cfg) {
+        let raw_main = result.state.raw_chunk.as_ref().map(|c| &c.main);
+        collect_cfgs(&lowered.main, raw_main, cfg_graph, &mut cfgs);
+    }
+
+    WasmRichResult {
+        source,
+        kind,
+        protos,
+        cfgs,
+    }
+}
+
+/// DFS 收集 proto 元数据，已发布行数就是当前先序 ID。
+fn collect_proto_meta(proto: &RawProto, out: &mut Vec<WasmProtoMeta>) {
+    // 显式栈避免深 Luau proto 链耗尽 WASM 调用栈；子 ID 在实际出栈时回填父行。
+    let mut pending: Vec<(&RawProto, Option<usize>)> = vec![(proto, None)];
+    while let Some((proto, parent)) = pending.pop() {
+        let my_id = out.len();
+
+        if let Some(parent) = parent {
+            out[parent].children.push(my_id);
+        }
+
+        out.push(WasmProtoMeta {
+            id: my_id,
+            name: proto.common.source.as_ref().map(raw_string_to_string),
+            line_start: proto.common.line_range.defined_start,
+            line_end: proto.common.line_range.defined_end,
+            num_params: proto.common.signature.num_params,
+            is_vararg: proto.common.signature.is_vararg,
+            num_upvalues: proto.common.upvalues.common.count as usize,
+            num_constants: proto.common.constants.common.literals.len(),
+            num_instructions: proto.common.instructions.len(),
+            constants: proto
+                .common
+                .constants
+                .common
+                .literals
+                .iter()
+                .enumerate()
+                .map(|(i, lit)| project_constant(i, lit))
+                .collect(),
+            children: Vec::with_capacity(proto.common.children.len()),
+        });
+
+        // 逆序压栈保持源码子节点顺序，此时子节点尚未发布。
+        for child in proto.common.children.iter().rev() {
+            pending.push((child.as_ref(), Some(my_id)));
+        }
+    }
+}
+
+/// DFS 收集每个 proto 的 CFG。
+///
+/// `raw_proto` 为 `Some` 时会通过 `LoweringMap` 将每条 Low-IR 指令
+/// 映射回原始字节码并格式化为 `raw_instructions`；否则留空。
+fn collect_cfgs(
+    lowered: &LoweredProto,
+    raw_proto: Option<&RawProto>,
+    cfg_graph: &CfgGraph,
+    out: &mut Vec<WasmProtoCfg>,
+) {
+    struct Frame<'a> {
+        lowered: &'a LoweredProto,
+        raw: Option<&'a RawProto>,
+        cfg_graph: &'a CfgGraph,
+    }
+
+    let mut pending = vec![Frame {
+        lowered,
+        raw: raw_proto,
+        cfg_graph,
+    }];
+    while let Some(frame) = pending.pop() {
+        let proto_id = out.len();
+
+        let raw_instrs = frame.raw.map(|p| &p.common.instructions);
+        let cfg = &frame.cfg_graph.cfg;
+        let blocks: Vec<WasmCfgBlock> = cfg
+            .blocks
+            .iter()
+            .enumerate()
+            .map(|(i, block)| {
+                let mut instructions = Vec::new();
+                let mut raw_instructions = Vec::new();
+
+                for offset in 0..block.instrs.len {
+                    let idx = block.instrs.start.index() + offset;
+                    if let Some(low_instr) = frame.lowered.instrs.get(idx) {
+                        instructions.push(format_low_instr(low_instr));
+
+                        // 通过 lowering_map 找到对应的原始指令
+                        if let Some(raw_vec) = raw_instrs {
+                            let raw_refs = frame.lowered.lowering_map.low_to_raw.get(idx);
+                            let raw_text: Vec<String> = raw_refs
+                                .map(|refs| {
+                                    refs.iter()
+                                        .filter_map(|RawInstrRef(raw_idx)| {
+                                            raw_vec.get(*raw_idx).map(format_raw_instr)
+                                        })
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+                            raw_instructions.push(raw_text.join("; "));
+                        }
+                    }
+                }
+
+                WasmCfgBlock {
+                    id: i,
+                    kind: block_kind_str(block.kind),
+                    instructions,
+                    raw_instructions,
+                }
+            })
+            .collect();
+
+        let edges: Vec<WasmCfgEdge> = cfg
+            .edges
+            .iter()
+            .map(|edge| WasmCfgEdge {
+                from: edge.from.index(),
+                to: edge.to.index(),
+                kind: edge_kind_str(edge.kind),
+            })
+            .collect();
+
+        out.push(WasmProtoCfg {
+            proto_id,
+            blocks,
+            edges,
+            entry_block: cfg.entry_block.index(),
+            exit_block: cfg.exit_block.index(),
+            block_order: cfg.block_order.iter().map(|b| b.index()).collect(),
+        });
+
+        // 与元数据投影保持相同的源码先序。
+        let child_count = frame
+            .lowered
+            .children
+            .len()
+            .min(frame.cfg_graph.children.len())
+            .min(
+                frame
+                    .raw
+                    .map_or(usize::MAX, |raw| raw.common.children.len()),
+            );
+        for index in (0..child_count).rev() {
+            pending.push(Frame {
+                lowered: &frame.lowered.children[index],
+                raw: frame
+                    .raw
+                    .and_then(|raw| raw.common.children.get(index).map(|child| child.as_ref())),
+                cfg_graph: &frame.cfg_graph.children[index],
+            });
+        }
+    }
+}
+
+fn block_kind_str(kind: BlockKind) -> &'static str {
+    match kind {
+        BlockKind::Normal => "normal",
+        BlockKind::SyntheticExit => "synthetic-exit",
+    }
+}
+
+fn edge_kind_str(kind: EdgeKind) -> &'static str {
+    match kind {
+        EdgeKind::Fallthrough => "fallthrough",
+        EdgeKind::Jump => "jump",
+        EdgeKind::BranchTrue => "branch-true",
+        EdgeKind::BranchFalse => "branch-false",
+        EdgeKind::LoopBody => "loop-body",
+        EdgeKind::LoopExit => "loop-exit",
+        EdgeKind::Return => "return",
+        EdgeKind::TailCall => "tail-call",
+    }
+}
+
+fn raw_string_to_string(s: &RawString) -> String {
+    // 优先使用已解码文本，否则 lossy UTF-8
+    if let Some(decoded) = &s.text {
+        decoded.value.to_string()
+    } else {
+        String::from_utf8_lossy(&s.bytes).into_owned()
+    }
+}
+
+fn project_constant(index: usize, lit: &RawLiteralConst) -> WasmConstant {
+    let (ty, display) = match lit {
+        RawLiteralConst::Nil => ("nil", "nil".to_owned()),
+        RawLiteralConst::Boolean(b) => ("boolean", b.to_string()),
+        RawLiteralConst::Integer(n) => ("integer", n.to_string()),
+        RawLiteralConst::Number(n) => ("number", format!("{n}")),
+        RawLiteralConst::String(s) => ("string", format!("\"{}\"", raw_string_to_string(s))),
+        RawLiteralConst::Int64(n) => ("int64", format!("{n}LL")),
+        RawLiteralConst::UInt64(n) => ("uint64", format!("{n}ULL")),
+        RawLiteralConst::Complex { real, imag } => ("complex", format!("{real}+{imag}i")),
+        RawLiteralConst::Vector(vector) => {
+            let [x, y, z, w] = vector.components.map(f32::from_bits);
+            ("vector", format!("vector({x},{y},{z},{w})"))
+        }
+    };
+    WasmConstant { index, ty, display }
+}

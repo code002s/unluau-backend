@@ -1,133 +1,157 @@
 #!/usr/bin/env python3
-"""HTTP front end for the unluac-rs Luau decompiler (patched for bytecode v3-v14).
+"""HTTP front end for the unluac-rs Luau decompiler (bytecode v3-v14).
 
-Contract expected by KYNX's upstream worker (LUAU_BACKEND_URL):
-  POST /decompile (or /)  body = raw Luau bytecode  ->  200 text/plain Lua source
-                                                        4xx/5xx {"error": "..."}
-  GET  /health            -> {"ok": true}
-Optional: set BACKEND_TOKEN to require `Authorization: Bearer <token>`.
+Contract expected by KYNX's upstream Worker (`LUAU_BACKEND_URL`):
+
+    POST /decompile (or /)   body = raw Luau bytecode  ->  200 text/plain Luau source
+                                                           4xx/5xx {"error": "..."}
+    GET  /health             -> {"ok": true, ...}
+
+Optional: `BACKEND_TOKEN` requires `Authorization: Bearer <token>`.
+Add `?raw=1` to `POST /decompile` to skip the readability cleanup.
 """
+
+from __future__ import annotations
+
+import hmac
 import json
 import os
-import subprocess
 import threading
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlsplit
 
-import luau_descramble
+from unluau.cleanup import CleanupOptions
+from unluau.decompiler import DecompileConfig, Failure, decompile
 
-PORT = int(os.getenv("PORT", "8080"))
-BIN = os.getenv("UNLUAC_BIN", "/usr/local/bin/unluac-cli")
-TOKEN = os.getenv("BACKEND_TOKEN", "")
-MAX_BYTES = 16 * 1024 * 1024
-TIMEOUT = int(os.getenv("DECOMPILE_TIMEOUT", "60"))
-# One decompile at a time per CPU keeps a small instance from thrashing.
-SLOTS = threading.BoundedSemaphore(int(os.getenv("MAX_CONCURRENT", "2")))
-
-CLI_ARGS = [
-    BIN, "-D", "luau",
-    "-i", "-",
-    "-n", "heuristic",        # readable fallback names
-    "-g", "permissive",       # emit pseudo-code for control flow it can't structure instead of failing
-    "--comment", "false",
-    # Roblox's Vector3 constants
-    "--luau-vector-library", "Vector3",
-    "--luau-vector-constructor", "new",
-    "--luau-vector-size", "3",
-]
+MAX_BODY_BYTES = 16 * 1024 * 1024
+DECOMPILE_PATHS = ("/", "/decompile")
+HEALTH_PATHS = ("/", "/health")
+ENGINE_INFO = {"ok": True, "service": "unluau-backend", "engine": "unluac-rs", "luauVersions": "3-14"}
 
 
-class Failure(Exception):
-    def __init__(self, status, message):
-        super().__init__(message)
-        self.status = status
-        self.message = message
+@dataclass(frozen=True)
+class ServerConfig:
+    port: int
+    token: str
+    max_concurrent: int
+    queue_timeout_seconds: float
+    decompile: DecompileConfig
+
+    @classmethod
+    def from_env(cls) -> "ServerConfig":
+        env = os.environ.get
+        cleanup = CleanupOptions(strict_header=env("LUAU_STRICT_HEADER", "") == "1")
+        return cls(
+            port=int(env("PORT", "8080")),
+            token=env("BACKEND_TOKEN", ""),
+            max_concurrent=int(env("MAX_CONCURRENT", "2")),
+            queue_timeout_seconds=float(env("QUEUE_TIMEOUT", "20")),
+            decompile=DecompileConfig(
+                binary=env("UNLUAC_BIN", "/usr/local/bin/unluac-cli"),
+                # The KYNX Worker gives up after 30 s, so answer before that.
+                timeout_seconds=int(env("DECOMPILE_TIMEOUT", "25")),
+                cleanup=cleanup,
+            ),
+        )
 
 
-def run_cli(data):
-    try:
-        p = subprocess.run(CLI_ARGS, input=data, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=TIMEOUT)
-    except subprocess.TimeoutExpired:
-        raise Failure(504, "decompiler timed out")
-    if p.returncode == 0:
-        return p.stdout.decode("utf-8", "replace")
-    err = p.stderr.decode("utf-8", "replace").strip().splitlines()
-    msg = next((l for l in err if l.startswith("error")), err[0] if err else "decompiler failed")
-    raise Failure(422 if p.returncode == 1 else 500, msg.replace("error: ", "", 1))
+def make_handler(config: ServerConfig) -> type[BaseHTTPRequestHandler]:
+    slots = threading.BoundedSemaphore(config.max_concurrent)
+
+    class Handler(BaseHTTPRequestHandler):
+        server_version = "unluau-backend"
+
+        # -- responses -------------------------------------------------------- #
+
+        def _send(self, status: int, body: str | bytes, content_type: str = "text/plain; charset=utf-8",
+                  headers: dict[str, str] | None = None) -> None:
+            payload = body.encode() if isinstance(body, str) else body
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(payload)))
+            for name, value in (headers or {}).items():
+                self.send_header(name, value)
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(payload)
+
+        def _json(self, status: int, payload: dict) -> None:
+            self._send(status, json.dumps(payload), "application/json; charset=utf-8")
+
+        def _is_authorized(self) -> bool:
+            if not config.token:
+                return True
+            supplied = self.headers.get("Authorization", "")
+            return hmac.compare_digest(supplied, f"Bearer {config.token}")
+
+        # -- routes ----------------------------------------------------------- #
+
+        def do_HEAD(self) -> None:  # noqa: N802
+            self.do_GET()
+
+        def do_GET(self) -> None:  # noqa: N802
+            if urlsplit(self.path).path not in HEALTH_PATHS:
+                return self._json(404, {"error": "Not found"})
+            self._json(200, ENGINE_INFO)
+
+        def do_POST(self) -> None:  # noqa: N802
+            url = urlsplit(self.path)
+            if url.path not in DECOMPILE_PATHS:
+                return self._json(404, {"error": "Not found"})
+            if not self._is_authorized():
+                return self._json(401, {"error": "Unauthorized"})
+
+            data = self._read_body()
+            if data is None:
+                return
+            clean = parse_qs(url.query).get("raw", ["0"])[0] != "1"
+            self._respond_with_decompile(data, clean)
+
+        def _read_body(self) -> bytes | None:
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                length = 0
+            if length <= 0:
+                self._json(400, {"error": "Empty request body"})
+                return None
+            if length > MAX_BODY_BYTES:
+                self._json(413, {"error": "Request body too large"})
+                return None
+            return self.rfile.read(length)
+
+        def _respond_with_decompile(self, data: bytes, clean: bool) -> None:
+            if not slots.acquire(timeout=config.queue_timeout_seconds):
+                return self._json(503, {"error": "Decompiler is busy, retry shortly"})
+            try:
+                result = decompile(data, config.decompile, clean)
+            except Failure as failure:
+                return self._json(failure.status, {"error": failure.message})
+            except Exception as error:  # noqa: BLE001 - never leak a stack trace
+                return self._json(500, {"error": f"Internal decompiler error: {type(error).__name__}"})
+            finally:
+                slots.release()
+
+            cleanup = result.cleanup
+            status = "off" if cleanup is None else ("cleaned" if cleanup.cleaned else "skipped")
+            headers = {"X-Cleanup": status}
+            if cleanup is not None and cleanup.note:
+                headers["X-Cleanup-Note"] = cleanup.note.encode("ascii", "replace").decode()[:200]
+            self._send(200, result.source, headers=headers)
+
+        def log_message(self, format: str, *args) -> None:  # noqa: A002
+            print(format % args, flush=True)
+
+    return Handler
 
 
-def decompile(data):
-    if not data:
-        raise Failure(400, "Empty request body")
-    if data[0] == 0:
-        raise Failure(422, "Luau compile error blob, not bytecode: " + data[1:200].decode("utf-8", "replace"))
-    try:
-        return run_cli(data)
-    except Failure as first:
-        # Roblox client/executor dumps scramble opcodes; undo that and retry once.
-        if first.status in (504, 400):
-            raise
-        try:
-            plain = luau_descramble.decode_roblox(data)
-        except ValueError:
-            raise first
-        if plain == data:
-            raise first
-        try:
-            return run_cli(plain)
-        except Failure:
-            raise first
-
-
-class Handler(BaseHTTPRequestHandler):
-    server_version = "unluau-backend"
-
-    def _send(self, status, body, ctype="text/plain; charset=utf-8"):
-        raw = body.encode() if isinstance(body, str) else body
-        self.send_response(status)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(raw)))
-        self.end_headers()
-        if self.command != "HEAD":
-            self.wfile.write(raw)
-
-    def _json(self, status, obj):
-        self._send(status, json.dumps(obj), "application/json; charset=utf-8")
-
-    def do_HEAD(self):
-        self.do_GET()
-
-    def do_GET(self):
-        if self.path in ("/", "/health"):
-            self._json(200, {"ok": True, "service": "unluau-backend", "engine": "unluac-rs", "luauVersions": "3-14"})
-        else:
-            self._json(404, {"error": "Not found"})
-
-    def do_POST(self):
-        if self.path.split("?")[0] not in ("/", "/decompile"):
-            return self._json(404, {"error": "Not found"})
-        if TOKEN and self.headers.get("Authorization", "") != "Bearer " + TOKEN:
-            return self._json(401, {"error": "Unauthorized"})
-        try:
-            n = int(self.headers.get("Content-Length", "0"))
-        except ValueError:
-            n = 0
-        if n <= 0:
-            return self._json(400, {"error": "Empty request body"})
-        if n > MAX_BYTES:
-            return self._json(413, {"error": "Request body too large"})
-        data = self.rfile.read(n)
-        try:
-            with SLOTS:
-                source = decompile(data)
-        except Failure as f:
-            return self._json(f.status, {"error": f.message})
-        except Exception as e:  # never leak a stack trace
-            return self._json(500, {"error": "Internal decompiler error: %s" % e})
-        self._send(200, source)
-
-    def log_message(self, fmt, *args):
-        print(fmt % args, flush=True)
+def main() -> None:
+    config = ServerConfig.from_env()
+    server = ThreadingHTTPServer(("0.0.0.0", config.port), make_handler(config))
+    server.daemon_threads = True
+    server.serve_forever()
 
 
 if __name__ == "__main__":
-    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+    main()

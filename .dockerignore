@@ -1,0 +1,7 @@
+.git
+__pycache__/
+test/
+unluac-rs/target/
+unluac-rs/packages/unluac-web/node_modules/
+unluac-rs/packages/unluac-js/node_modules/
+webs/

@@ -1,0 +1,6 @@
+name = "kynx-upstream"
+main = "src/index.js"
+compatibility_date = "2026-09-19"
+
+[vars]
+LUAU_BACKEND_URL = "https://unluau-backend.onrender.com/decompile"

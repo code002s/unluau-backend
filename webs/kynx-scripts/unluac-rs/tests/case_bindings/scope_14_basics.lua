@@ -1,0 +1,100 @@
+-- common_01_basics#1: 多赋值与局部变量初始化
+-- 标量初始化不应退化成先空声明再逐项写入。
+-- unluac: expect-ast-max [[empty-local]] [[0]] [[@dialect=lua5.4]] [[@proto=1]]
+local function test_assignments()
+    local a, b, c = "alpha", 42, true
+    local x, y, z = 1, 2, 3
+
+    print("common_01_basics#1", a, b, c, x + y + z)
+end
+
+-- common_01_basics#2: do-end块作用域与变量遮蔽
+-- 内层声明结束后，复用低槽的调用仍应保持完整。
+-- unluac: expect-count [[print("common_01_basics#2",]] [[2]]
+-- 初始化应直接给出拼接值；LuaJIT 的子函数编号与 PUC/Luau 相反。
+-- unluac: expect-ast-count [[assign]] [[0]] [[@proto=2]] [[@dialect=lua5.1]]
+-- unluac: expect-ast-count [[assign]] [[0]] [[@proto=2]] [[@dialect=lua5.2]]
+-- unluac: expect-ast-count [[assign]] [[0]] [[@proto=2]] [[@dialect=lua5.3]]
+-- unluac: expect-ast-count [[assign]] [[0]] [[@proto=2]] [[@dialect=lua5.4]]
+-- unluac: expect-ast-count [[assign]] [[0]] [[@proto=2]] [[@dialect=lua5.5]]
+-- unluac: expect-ast-count [[assign]] [[0]] [[@proto=2]] [[@dialect=luau]]
+-- unluac: expect-ast-count [[assign]] [[0]] [[@proto=5]] [[@dialect=luajit]]
+local function test_locals_and_blocks()
+    local name = "outer"
+
+    do
+        local name = "inner"
+        local value = name .. "-block"
+        print("common_01_basics#2", name, value)
+    end
+
+    print("common_01_basics#2", name)
+end
+
+-- common_01_basics#3: 表引用别名在循环中的修改
+local function test_alias_mutation()
+    local t = { 1, 2 }
+    local cached = t[1]
+
+    for i = 1, 3 do
+        t[1] = i + 10
+    end
+
+    print("common_01_basics#3", cached, t[1], t[2])
+end
+
+-- common_01_basics#4: 多层嵌套变量遮蔽与条件返回
+-- unluac: expect-count [[print("common_01_basics#4",]] [[3]]
+-- stripped 仍更新原低槽变量，不为 CONCAT 写回增加局部副本。
+-- unluac: expect-ast-max [[local-decl]] [[2]] [[@debug=stripped]] [[@proto=5]] [[@dialect=lua5.1]]
+-- unluac: expect-ast-max [[local-decl]] [[2]] [[@debug=stripped]] [[@proto=5]] [[@dialect=lua5.2]]
+-- unluac: expect-ast-max [[local-decl]] [[2]] [[@debug=stripped]] [[@proto=5]] [[@dialect=lua5.3]]
+-- unluac: expect-ast-max [[local-decl]] [[2]] [[@debug=stripped]] [[@proto=5]] [[@dialect=lua5.4]]
+-- unluac: expect-ast-max [[local-decl]] [[2]] [[@debug=stripped]] [[@proto=5]] [[@dialect=lua5.5]]
+-- unluac: expect-ast-max [[local-decl]] [[2]] [[@debug=stripped]] [[@proto=5]] [[@dialect=luau]]
+-- unluac: expect-ast-max [[local-decl]] [[2]] [[@debug=stripped]] [[@proto=3]] [[@dialect=luajit]]
+local function test_shadowed_locals()
+    local function choose(flag)
+        local value = "root"
+
+        if flag then
+            local value = "branch"
+            if #value > 0 then
+                print("common_01_basics#4", value .. "-if")
+            end
+
+            value = value .. "-mut"
+            return value
+        end
+
+        do
+            local value = "else"
+            print("common_01_basics#4", value)
+        end
+
+        return value
+    end
+
+    print("common_01_basics#4", choose(true), choose(false))
+end
+
+-- common_01_basics#5: 数值for循环控制变量不可变性
+-- unluac: expect-count [[print("common_01_basics#5",]] [[1]]
+local function test_for_rebound()
+    local start, stop, step = 1, 7, 2
+    local values = {}
+
+    for i = start, stop, step do
+        values[#values + 1] = i
+        start = 100
+        step = 100
+    end
+
+    print("common_01_basics#5", table.concat(values, ","), start, step)
+end
+
+test_assignments()
+test_locals_and_blocks()
+test_alias_mutation()
+test_shadowed_locals()
+test_for_rebound()

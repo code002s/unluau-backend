@@ -41,7 +41,6 @@ pub(crate) struct LuauParser {
 struct LuauParserState {
     options: ParseOptions,
     strings: Vec<RawString>,
-    roblox_encoded: bool,
 }
 
 struct FlatProto {
@@ -73,23 +72,11 @@ impl LuauParser {
     }
 
     pub(crate) fn parse(&self, bytes: &[u8]) -> Result<RawChunk, ParseError> {
-        let mut state = LuauParserState {
+        LuauParserState {
             options: self.options,
             strings: Vec::new(),
-            roblox_encoded: false,
-        };
-        let result = state.parse(bytes);
-
-        if let Err(ParseError::InvalidOpcode { .. }) = result {
-            // Auto-detect Roblox-encoded opcodes: try parsing the entire chunk again with the flag.
-            let mut state_roblox = LuauParserState {
-                options: self.options,
-                strings: Vec::new(),
-                roblox_encoded: true,
-            };
-            return state_roblox.parse(bytes);
         }
-        result
+        .parse(bytes)
     }
 }
 
@@ -427,16 +414,12 @@ impl LuauParserState {
 
         while word_pc < words.len() {
             let word = words[word_pc];
-            let raw_opcode_byte = (word & 0xff) as u8;
-            let opcode_byte = if self.roblox_encoded {
-                raw_opcode_byte.wrapping_mul(203)
-            } else {
-                raw_opcode_byte
-            };
-            let opcode = LuauOpcode::try_from(opcode_byte).map_err(|invalid| ParseError::InvalidOpcode {
-                pc: word_pc,
-                opcode: invalid,
-            })?;
+            let opcode_byte = (word & 0xff) as u8;
+            let opcode =
+                LuauOpcode::try_from(opcode_byte).map_err(|invalid| ParseError::InvalidOpcode {
+                    pc: word_pc,
+                    opcode: invalid,
+                })?;
             if bytecode_version < opcode.min_bytecode_version() {
                 return Err(ParseError::UnsupportedValue {
                     field: "luau opcode for bytecode version",

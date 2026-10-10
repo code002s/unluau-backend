@@ -1,0 +1,14 @@
+[package]
+name = "unluac-cli"
+version = "1.4.4"
+edition = "2024"
+publish = false
+repository = "https://github.com/x3zvawq/unluac-rs"
+homepage = "https://github.com/x3zvawq/unluac-rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+clap = { version = "4.6.0", features = ["derive"] }
+unluac = { path = "../.." }

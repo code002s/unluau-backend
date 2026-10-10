@@ -1,0 +1,24 @@
+{
+  "name": "kynx-upstream",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "test": "node --test test/*.test.js",
+    "fetch:luau": "node ../../tools/fetch-luau.mjs",
+    "build:luau-web": "bash ../../tools/build-luau-web.sh",
+    "fetch:luau:upstream": "node ../../tools/fetch-luau-upstream.mjs",
+    "postinstall": "node tools/sync-unluac-wasm.mjs",
+    "test:luau-v13": "node --test test/luau-v13.test.js",
+    "build:engine": "node tools/build-unluac-wasm.mjs",
+    "verify:engine": "node tools/verify-engine.mjs"
+  },
+  "dependencies": {
+    "esbuild": "^0.28.2",
+    "unluac-js": "^1.4.4"
+  },
+  "devDependencies": {
+    "wrangler": "^4.149.0"
+  },
+  "type": "module"
+}

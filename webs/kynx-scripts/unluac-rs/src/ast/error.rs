@@ -1,0 +1,88 @@
+//! AST lowering 的错误类型。
+
+use thiserror::Error;
+
+use crate::ast::{AstBindingRef, AstLabelId, DecompileDialect};
+
+/// HIR -> AST lowering 可能失败的原因。
+#[derive(Debug, Clone, Error)]
+pub enum AstLowerError {
+    #[error("HIR proto#{proto} capture initializer requires its proven Luau entry frame")]
+    InvalidCaptureInitializer { proto: usize },
+    #[error(
+        "target dialect `{dialect}` does not support feature `{feature}` required by {context}"
+    )]
+    UnsupportedFeature {
+        dialect: DecompileDialect,
+        feature: &'static str,
+        context: &'static str,
+    },
+    #[error("HIR exit proto#{proto} retains unresolved phi{phi} at #{block} register r{register}")]
+    UnresolvedHirValue {
+        proto: usize,
+        phi: usize,
+        block: usize,
+        register: usize,
+    },
+    #[error("HIR proto#{proto} still contains residual {kind} during AST lowering")]
+    ResidualHir { proto: usize, kind: &'static str },
+    #[error("HIR proto#{proto} references missing child proto#{child}")]
+    MissingChildProto { proto: usize, child: usize },
+    #[error("HIR proto#{proto} marks a named vararg table but has no recoverable entry binding")]
+    MissingNamedVarargBinding { proto: usize },
+    #[error("HIR proto#{proto} has unsupported to-be-closed shape: {reason}")]
+    InvalidToBeClosed { proto: usize, reason: &'static str },
+    #[error(
+        "HIR proto#{proto} still contains explicit close semantics that AST lowering cannot absorb yet"
+    )]
+    UnsupportedClose { proto: usize },
+    #[error("HIR proto#{proto} contains err-nnil that cannot be matched to a global declaration")]
+    InvalidGlobalDeclPattern { proto: usize },
+    #[error(
+        "HIR proto#{proto} global declaration name `{name}` is not a legal identifier for target dialect `{dialect}`"
+    )]
+    InvalidGlobalDeclName {
+        proto: usize,
+        dialect: DecompileDialect,
+        name: String,
+    },
+    #[error(
+        "HIR proto#{proto} global key {key} is not a legal identifier for target dialect `{dialect}`"
+    )]
+    InvalidGlobalName {
+        proto: usize,
+        dialect: DecompileDialect,
+        key: String,
+    },
+    #[error("HIR proto#{proto} has invalid method call lowering shape: {reason}")]
+    InvalidMethodCallPattern { proto: usize, reason: &'static str },
+    #[error(
+        "AST function#{function} closure captures local binding {binding:?} before its declaration"
+    )]
+    InvalidForwardLocalCapture {
+        function: usize,
+        binding: AstBindingRef,
+    },
+    #[error("AST function#{function} defines goto label#{label} more than once")]
+    DuplicateGotoLabel { function: usize, label: AstLabelId },
+    #[error("AST function#{function} goto references missing label#{label} in the same function")]
+    MissingGotoLabel { function: usize, label: AstLabelId },
+    #[error("AST function#{function} goto label#{label} is not visible from its lexical block")]
+    InvisibleGotoLabel { function: usize, label: AstLabelId },
+    #[error("AST function#{function} goto label#{label} enters local binding {binding:?} scope")]
+    GotoEntersLocalScope {
+        function: usize,
+        label: AstLabelId,
+        binding: AstBindingRef,
+    },
+    #[error(
+        "AST function#{function} goto label#{label} enters to-be-closed binding {binding:?} scope"
+    )]
+    GotoEntersToBeClosedScope {
+        function: usize,
+        label: AstLabelId,
+        binding: AstBindingRef,
+    },
+    #[error("AST function#{function} has an inconsistent goto scope tree")]
+    InvalidGotoScopeTree { function: usize },
+}

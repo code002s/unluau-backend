@@ -1,0 +1,74 @@
+//! AST 层入口。
+
+mod build;
+mod capture_scope;
+mod common;
+#[cfg(feature = "decompile-debug")]
+mod debug;
+mod error;
+mod features;
+mod goto_scope;
+mod naming;
+pub(crate) mod pretty;
+mod readability;
+mod table_layout;
+pub(crate) mod traverse;
+mod visit;
+
+pub use crate::decompile::{DecompileDialect, ReadabilityOptions};
+pub use build::lower_ast;
+pub use common::{
+    AstAssign, AstBinaryExpr, AstBinaryOpKind, AstBindingRef, AstBlock, AstCallExpr, AstCallKind,
+    AstCallStmt, AstDialectCaps, AstExpr, AstFeature, AstFieldAccess, AstFunctionDecl,
+    AstFunctionExpr, AstFunctionName, AstGenericFor, AstGlobalAttr, AstGlobalBinding,
+    AstGlobalBindingTarget, AstGlobalDecl, AstGlobalName, AstGoto, AstIf, AstIfExpr,
+    AstIndexAccess, AstLValue, AstLabel, AstLabelId, AstLocalAttr, AstLocalBinding, AstLocalDecl,
+    AstLocalFunctionDecl, AstLocalOrigin, AstLogicalExpr, AstMethodCallExpr, AstModule,
+    AstNamePath, AstNameRef, AstNumericFor, AstRecordField, AstRepeat, AstReturn,
+    AstRewriteAuthority, AstStmt, AstSyntheticLocalId, AstTableConstructor, AstTableField,
+    AstTableKey, AstTargetDialect, AstUnaryExpr, AstUnaryOpKind, AstWhile,
+};
+#[cfg(feature = "decompile-debug")]
+pub use debug::dump_ast;
+#[cfg(not(feature = "decompile-debug"))]
+mod debug {
+    crate::debug::define_unavailable_stage_dump!(dump_ast);
+}
+#[cfg(not(feature = "decompile-debug"))]
+pub use debug::dump_ast;
+pub use error::AstLowerError;
+pub(crate) use features::collect_ast_features;
+pub use naming::{
+    FunctionNameMap, NameInfo, NameMap, NameSource, NamingError, NamingEvidence, NamingMode,
+    NamingOptions, assign_name_map, assign_names_with_evidence, collect_naming_evidence,
+};
+pub(crate) use visit::written_locals;
+
+pub(crate) fn analyze_ast_stage(
+    state: &mut crate::decompile::DecompileState,
+    context: &crate::decompile::DecompileContext<'_>,
+) -> Result<(), crate::decompile::DecompileError> {
+    {
+        let _timing = context.timings.scope("build");
+        build::lower_ast_for_generate(state, context)?;
+    }
+    {
+        let _timing = context.timings.scope("readability");
+        readability::make_readable(state, context)?;
+    }
+    {
+        let _timing = context.timings.scope("goto-scope");
+        let Some(readability) = state.readability.as_mut() else {
+            return Err(crate::decompile::DecompileError::MissingStageOutput {
+                stage: crate::decompile::DecompileStage::Ast,
+            });
+        };
+        goto_scope::verify_or_diagnose(readability, context.options.generate.mode)?;
+    }
+    {
+        let _timing = context.timings.scope("naming");
+        naming::assign_names(state, context)?;
+    }
+
+    Ok(())
+}

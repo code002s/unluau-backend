@@ -1,0 +1,211 @@
+//! 这个文件承载 Luau parser 产物的轻量调试输出。
+//!
+//! 第一阶段先保证我们能稳定观察 Luau header/proto/instruction/constant 的解码结果，
+//! 不把格式细节重新塞回公共调试入口里。
+
+use std::fmt::Write as _;
+
+use crate::debug::{
+    DebugColorMode, DebugDetail, DebugFilters, collect_proto_tree, colorize_debug_text,
+    format_breadcrumb, plan_proto_focus,
+};
+use crate::parser::debug::{format_optional_source, write_elided_summary};
+use crate::parser::raw::{RawChunk, RawInstr};
+
+use super::raw::{
+    LuauConstEntry, LuauDebugExtra, LuauInstrExtra, LuauOpcode, LuauOperands, LuauProtoExtra,
+};
+
+pub(crate) fn dump_chunk(
+    chunk: &RawChunk,
+    detail: DebugDetail,
+    filters: &DebugFilters,
+    color: DebugColorMode,
+) -> String {
+    let mut output = String::new();
+    let protos = collect_proto_tree(&chunk.main, |proto| {
+        proto.common.children.iter().map(|child| child.as_ref())
+    });
+    let plan = plan_proto_focus(&protos, filters);
+
+    let layout = chunk
+        .header
+        .luau_layout()
+        .expect("luau debug should only receive luau chunk layouts");
+
+    let _ = writeln!(output, "===== Dump Parser =====");
+    let _ = writeln!(
+        output,
+        "parser dialect=luau detail={} protos={}",
+        detail,
+        protos.len()
+    );
+    let _ = writeln!(
+        output,
+        "header bytecode_version={} type_version={}",
+        layout.bytecode_version,
+        layout
+            .type_version
+            .map_or_else(|| "-".to_owned(), |value| value.to_string()),
+    );
+    if let Some(proto_id) = filters.proto {
+        let _ = writeln!(output, "filters proto=proto#{proto_id}");
+    }
+    let _ = writeln!(output, "filters proto_depth={}", filters.proto_depth);
+    if let Some(breadcrumb) = format_breadcrumb(&plan) {
+        let _ = writeln!(output, "focus {breadcrumb}");
+    }
+    let _ = writeln!(output);
+
+    if plan.focus.is_none() {
+        let _ = writeln!(output, "  <no proto matched filters>");
+        return colorize_debug_text(&output, color);
+    }
+
+    for entry in protos {
+        if plan.is_elided(entry.id) {
+            let indent = "  ".repeat(entry.depth);
+            write_elided_summary(&mut output, &indent, &entry);
+            continue;
+        }
+        if !plan.is_visible(entry.id) {
+            continue;
+        }
+
+        let indent = "  ".repeat(entry.depth);
+        let id = entry.id;
+        let proto = entry.value;
+        let LuauProtoExtra {
+            flags,
+            type_info,
+            debug_name,
+            ..
+        } = proto
+            .extra
+            .luau()
+            .expect("luau debug should only receive luau protos");
+        let const_pool_extra = proto
+            .common
+            .constants
+            .extra
+            .luau()
+            .expect("luau debug should only receive luau constants");
+
+        let _ = writeln!(
+            output,
+            "{indent}proto#{id} source={} debug_name={} lines={}..{} params={} vararg={} flags=0x{flags:02x} stack={} instrs={} consts={} upvalues={} children={}",
+            format_optional_source(proto.common.source.as_ref()),
+            format_optional_source(debug_name.as_ref()),
+            proto.common.line_range.defined_start,
+            proto.common.line_range.defined_end,
+            proto.common.signature.num_params,
+            proto.common.signature.is_vararg,
+            proto.common.frame.max_stack_size,
+            proto.common.instructions.len(),
+            const_pool_extra.entries.len(),
+            proto.common.upvalues.common.count,
+            proto.common.children.len(),
+        );
+
+        if matches!(detail, DebugDetail::Summary) {
+            continue;
+        }
+
+        if let Some(LuauDebugExtra {
+            line_gap_log2,
+            local_regs,
+        }) = proto.common.debug_info.extra.luau()
+        {
+            let _ = writeln!(
+                output,
+                "{indent}  debug lines={} locals={} local-regs={} upvalue-names={} line-gap-log2={} type-bytes={}",
+                proto.common.debug_info.common.line_info.len(),
+                proto.common.debug_info.common.local_vars.len(),
+                local_regs.len(),
+                proto.common.debug_info.common.upvalue_names.len(),
+                line_gap_log2.map_or_else(|| "-".to_owned(), |value| value.to_string()),
+                type_info.len(),
+            );
+        }
+
+        if matches!(detail, DebugDetail::Verbose) {
+            let _ = writeln!(output, "{indent}  constants");
+            if const_pool_extra.entries.is_empty() {
+                let _ = writeln!(output, "{indent}    <empty>");
+            } else {
+                for (index, entry) in const_pool_extra.entries.iter().enumerate() {
+                    let _ = writeln!(
+                        output,
+                        "{indent}    k{index:03} {}",
+                        format_const_entry(entry)
+                    );
+                }
+            }
+        }
+
+        let _ = writeln!(output, "{indent}  instructions");
+        if proto.common.instructions.is_empty() {
+            let _ = writeln!(output, "{indent}    <empty>");
+            continue;
+        }
+
+        for (index, instr) in proto.common.instructions.iter().enumerate() {
+            let (opcode, operands, extra) = decode_luau(instr);
+            let _ = writeln!(
+                output,
+                "{indent}    @{index:03} pc={} words={} opcode={opcode:?} operands={} aux={}",
+                extra.pc,
+                extra.word_len,
+                format_operands(operands),
+                extra
+                    .aux
+                    .map_or_else(|| "-".to_owned(), |value| format!("0x{value:08x}")),
+            );
+        }
+    }
+
+    colorize_debug_text(&output, color)
+}
+
+fn format_const_entry(entry: &LuauConstEntry) -> String {
+    match entry {
+        LuauConstEntry::Literal { literal_index } => format!("literal l{literal_index}"),
+        LuauConstEntry::Import { import_id } => format!("import 0x{import_id:08x}"),
+        LuauConstEntry::Table { key_consts } => format!("table keys={key_consts:?}"),
+        LuauConstEntry::TableWithConstants { entries } => {
+            format!("table+consts entries={entries:?}")
+        }
+        LuauConstEntry::Closure {
+            proto_index,
+            child_proto_index,
+        } => format!("closure proto={proto_index} child={child_proto_index}"),
+    }
+}
+
+fn decode_luau(raw: &RawInstr) -> (LuauOpcode, &LuauOperands, LuauInstrExtra) {
+    let opcode = raw
+        .opcode
+        .luau()
+        .expect("luau debug should only receive luau opcodes");
+    let operands = raw
+        .operands
+        .luau()
+        .expect("luau debug should only receive luau operands");
+    let extra = raw
+        .extra
+        .luau()
+        .expect("luau debug should only receive luau extras");
+    (*opcode, operands, *extra)
+}
+
+fn format_operands(operands: &LuauOperands) -> String {
+    match operands {
+        LuauOperands::None => "-".to_owned(),
+        LuauOperands::A { a } => format!("A={a}"),
+        LuauOperands::AB { a, b } => format!("A={a} B={b}"),
+        LuauOperands::AC { a, c } => format!("A={a} C={c}"),
+        LuauOperands::ABC { a, b, c } => format!("A={a} B={b} C={c}"),
+        LuauOperands::AD { a, d } => format!("A={a} D={d}"),
+        LuauOperands::E { e } => format!("E={e}"),
+    }
+}

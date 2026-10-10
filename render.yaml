@@ -4,6 +4,11 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     plan: free
+    healthCheckPath: /health
     envVars:
       - key: PORT
         value: 8080
+      # The KYNX Worker aborts after 30 s; answer before that.
+      - key: DECOMPILE_TIMEOUT
+        value: 25
+      # Do NOT set BACKEND_TOKEN: the KYNX Worker does not send an Authorization header.

@@ -1,0 +1,8 @@
+[alias]
+unluac = "run -p unluac-cli --"
+lua = "run -p xtask --"
+case-test = "run -p xtask -- test-cases"
+
+# Windows 默认主线程栈较小；深层 Lua/LuaJIT 表达式在生成阶段需要与 Unix 相同的栈空间。
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/STACK:8388608"]

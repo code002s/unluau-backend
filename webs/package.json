@@ -1,0 +1,9 @@
+{
+  "name": "kynx-tools",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "fetch:luau": "node tools/fetch-luau.mjs",
+    "build:luau-web": "bash tools/build-luau-web.sh"
+  }
+}

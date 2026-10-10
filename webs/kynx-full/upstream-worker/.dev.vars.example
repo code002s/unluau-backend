@@ -1,0 +1,3 @@
+# URL of the dedicated Unluau/Roblox decompiler service.
+# Example: https://your-unluau-host.example/decompile
+LUAU_BACKEND_URL=

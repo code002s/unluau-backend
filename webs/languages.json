@@ -1,0 +1,77 @@
+{
+  "name": "KYNX language matrix",
+  "version": 1,
+  "languages": [
+    {
+      "id": "lua5.1",
+      "name": "Lua 5.1",
+      "kind": "bytecode",
+      "status": "supported",
+      "description": "Classic Lua 5.1 bytecode."
+    },
+    {
+      "id": "lua5.2",
+      "name": "Lua 5.2",
+      "kind": "bytecode",
+      "status": "supported",
+      "description": "Lua 5.2 bytecode."
+    },
+    {
+      "id": "lua5.3",
+      "name": "Lua 5.3",
+      "kind": "bytecode",
+      "status": "supported",
+      "description": "Lua 5.3 bytecode."
+    },
+    {
+      "id": "lua5.4",
+      "name": "Lua 5.4",
+      "kind": "bytecode",
+      "status": "supported",
+      "description": "Lua 5.4 bytecode."
+    },
+    {
+      "id": "luajit20",
+      "name": "LuaJIT 2.0",
+      "kind": "bytecode",
+      "status": "backend-dependent",
+      "description": "LuaJIT 2.0 bytecode; backend support required."
+    },
+    {
+      "id": "luajit21",
+      "name": "LuaJIT 2.1",
+      "kind": "bytecode",
+      "status": "supported",
+      "description": "LuaJIT 2.1 bytecode."
+    },
+    {
+      "id": "luau",
+      "name": "Luau / Roblox",
+      "kind": "bytecode",
+      "status": "engine-dependent",
+      "description": "Official Luau bytecode; v13/v14 require a v13/v14-capable decompiler engine."
+    },
+    {
+      "id": "moonscript",
+      "name": "MoonScript",
+      "kind": "source",
+      "status": "source-to-lua",
+      "description": "MoonScript source; compile/transpile to Lua before bytecode decompilation."
+    },
+    {
+      "id": "teal",
+      "name": "Teal",
+      "kind": "source",
+      "status": "source-to-lua",
+      "description": "Teal source; compile/transpile to Lua before bytecode decompilation."
+    },
+    {
+      "id": "elua",
+      "name": "eLua",
+      "kind": "source-or-bytecode",
+      "status": "lua-family",
+      "description": "Embedded Lua distribution; uses the compatible Lua bytecode family."
+    }
+  ],
+  "official_luau_upstream": "https://github.com/luau-lang/luau"
+}

@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KYNX — Luau decompiler</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Michroma&family=Orbitron:wght@800&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #070707;
+    --panel: #0b0b0c;
+    --line: #1a1a1c;
+    --line-hi: #2a2a2e;
+    --text: #d6d6da;
+    --dim: #70707b;
+    --faint: #3a3a42;
+    --red: #d4143c;
+    --red-hi: #ff3b5f;
+    --ok: #5fd39a;
+    --wide: "Michroma", "Segoe UI", system-ui, sans-serif;
+    --outline: "Orbitron", "Michroma", sans-serif;
+    --mono: "Share Tech Mono", ui-monospace, Consolas, monospace;
+    --side: 210px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font-family: var(--mono);
+    min-height: 100vh;
+    background-image:
+      radial-gradient(ellipse at 60% 18%, rgba(212,20,60,.05), transparent 55%),
+      repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px);
+  }
+  [hidden] { display: none !important; }
+  :focus-visible { outline: 1px solid var(--red-hi); outline-offset: 3px; }
+  ::selection { background: var(--red); color: #fff; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #22222a; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ---------- sidebar ---------- */
+  aside {
+    position: fixed; inset: 0 auto 0 0; width: var(--side); z-index: 5;
+    border-right: 1px solid var(--line); background: rgba(7,7,7,.94);
+    padding: 44px 0 26px 22px; display: flex; flex-direction: column; gap: 64px;
+  }
+  .logo { font-family: var(--wide); font-size: 20px; letter-spacing: .06em; color: #a0a0a8; text-decoration: none; }
+  .logo small { display: block; margin-top: 10px; font-family: var(--mono); font-size: 9.5px; letter-spacing: .38em; color: var(--faint); text-transform: uppercase; }
+  nav { display: flex; flex-direction: column; gap: 6px; }
+  nav a {
+    position: relative; text-decoration: none; padding: 12px 0; font-size: 11px;
+    letter-spacing: .32em; color: var(--dim); text-transform: uppercase;
+    transition: color .15s, padding-left .2s;
+  }
+  nav a:hover { color: var(--text); }
+  nav a[aria-current="page"] { color: var(--text); padding-left: 14px; }
+  nav a[aria-current="page"]::before { content: ""; position: absolute; left: 0; top: 50%; width: 7px; height: 1px; background: var(--red); }
+  .ver { margin-top: auto; font-size: 10px; letter-spacing: .3em; color: var(--faint); }
+
+  /* ---------- layout ---------- */
+  main { margin-left: var(--side); padding: 0 clamp(20px, 3.5vw, 52px) 90px; }
+
+  /* ---------- hero (one orchestrated load sequence) ---------- */
+  .hero { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; position: relative; }
+  .wordmark {
+    font-family: var(--wide); font-size: clamp(56px, 11.5vw, 156px); line-height: 1; margin: 0; padding: 0 .04em;
+    background-image:
+      repeating-linear-gradient(90deg, rgba(0,0,0,.10) 0 1px, transparent 1px 3px),
+      linear-gradient(105deg, #838388 0%, #838388 30%, #f4f4f6 42%, #adadb2 55%, #b6b6ba 100%);
+    background-size: auto, 300% 100%;
+    background-position: 0 0, 50% 0;
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: reveal 1s cubic-bezier(.2,.7,.1,1) both, sheen 2.2s ease-out .2s both;
+  }
+  @keyframes reveal { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+  @keyframes sheen { from { background-position: 0 0, 100% 0; } to { background-position: 0 0, 50% 0; } }
+  .tagline { margin: 24px 0 28px; font-size: 11px; letter-spacing: .55em; color: var(--dim); text-transform: uppercase; animation: rise .7s ease .7s both; }
+  .bar { width: 60px; height: 2px; background: var(--red); transform-origin: left; animation: grow .6s ease 1s both; }
+  .scroll-hint { position: absolute; bottom: 9vh; left: 50%; transform: translateX(-50%); font-size: 10px; letter-spacing: .5em; color: var(--faint); text-transform: uppercase; text-decoration: none; animation: rise .7s ease 1.4s both; }
+  .scroll-hint::after { content: ""; display: block; width: 1px; height: 36px; margin: 16px auto 0; background: linear-gradient(var(--red), transparent); }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  .scroll-hint { --x: -50%; }
+  .scroll-hint { animation-name: rise-x; }
+  @keyframes rise-x { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+  @keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  @media (prefers-reduced-motion: reduce) {
+    .wordmark, .tagline, .bar, .scroll-hint, .marquee-track { animation: none !important; }
+  }
+
+  .marquee { overflow: hidden; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 26px 0; margin-bottom: 64px; }
+  .marquee-track { display: flex; width: max-content; animation: slide 44s linear infinite; }
+  .marquee-track span { font-family: var(--outline); font-weight: 800; font-size: clamp(34px, 5vw, 60px); white-space: pre; color: transparent; -webkit-text-stroke: 1px #2c2c31; }
+  @keyframes slide { to { transform: translateX(-50%); } }
+
+  /* ---------- tool ---------- */
+  .section-title { display: flex; align-items: baseline; gap: 18px; margin: 0 0 20px; }
+  .section-title h2 { font-family: var(--wide); font-weight: 400; font-size: 20px; margin: 0; color: #bdbdc2; letter-spacing: .04em; }
+  .section-title span { flex: 1; height: 1px; background: var(--line); }
+  .tool { display: grid; grid-template-columns: minmax(270px, 360px) 1fr; gap: 18px; align-items: start; }
+  @media (max-width: 960px) { .tool { grid-template-columns: 1fr; } }
+  .stack { display: flex; flex-direction: column; gap: 18px; }
+  .panel { border: 1px solid var(--line); background: var(--panel); }
+  .panel-head { padding: 15px 20px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .label { font-size: 10.5px; letter-spacing: .34em; color: var(--dim); text-transform: uppercase; }
+  .panel-body { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+
+  .drop { display: block; border: 1px dashed var(--line-hi); padding: 30px 16px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s; }
+  .drop:hover, .drop.over { border-color: var(--red); background: #0f0a0c; }
+  .drop b { display: block; font-weight: 400; font-size: 13px; letter-spacing: .12em; margin-bottom: 8px; }
+  .drop small { color: var(--dim); font-size: 11.5px; letter-spacing: .1em; }
+  .drop input { display: none; }
+  .field { border: 1px solid var(--line); padding: 12px 14px; }
+  .field .label { margin-bottom: 8px; }
+  .field .val { font-size: 14px; word-break: break-all; }
+
+  button {
+    font: inherit; font-size: 11.5px; letter-spacing: .26em; text-transform: uppercase; cursor: pointer;
+    background: transparent; color: var(--text); border: 1px solid var(--line-hi); padding: 10px 14px;
+    transition: border-color .15s, color .15s, background .15s;
+  }
+  button:hover:not(:disabled) { border-color: var(--text); }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+  button[aria-pressed="true"] { border-color: var(--red); color: var(--red-hi); }
+  button.primary { background: var(--red); border-color: var(--red); color: #fff; padding: 15px; }
+  button.primary:hover:not(:disabled) { background: var(--red-hi); border-color: var(--red-hi); }
+  select {
+    width: 100%; font: inherit; font-size: 12px; letter-spacing: .04em; color: var(--text);
+    background: #070708; border: 1px solid var(--line-hi); padding: 11px 12px;
+  }
+  .language-matrix { display: grid; grid-template-columns: 1fr 1fr; }
+  .language-matrix .lang { padding: 11px 14px; border-bottom: 1px solid var(--line); }
+  .language-matrix .lang:nth-child(odd) { border-right: 1px solid var(--line); }
+  .language-matrix b { display: block; font-size: 11px; letter-spacing: .08em; font-weight: 400; }
+  .language-matrix small { display: block; margin-top: 4px; color: var(--faint); font-size: 9px; line-height: 1.35; }
+  .language-matrix .ready small { color: var(--ok); }
+  .language-matrix .catalog small { color: var(--dim); }
+  .hint { font-size: 11px; color: var(--faint); letter-spacing: .1em; text-align: center; }
+
+  .recent { list-style: none; margin: 0; padding: 0; }
+  .recent li button { width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); padding: 12px 20px; letter-spacing: .06em; text-transform: none; font-size: 13px; display: flex; justify-content: space-between; gap: 10px; }
+  .recent li:last-child button { border-bottom: 0; }
+  .recent li button:hover { background: #0f0f11; }
+  .recent li button span:last-child { color: var(--dim); white-space: nowrap; }
+  .recent .empty { padding: 16px 20px; color: var(--faint); font-size: 12px; letter-spacing: .1em; }
+
+  .out { display: flex; flex-direction: column; min-height: 480px; }
+  .tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .status { font-size: 12px; letter-spacing: .08em; color: var(--dim); margin-right: 6px; max-width: 48ch; }
+  .status.ok { color: var(--ok); }
+  .status.err { color: var(--red-hi); }
+  .status.busy::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 8px; background: var(--red); animation: blink .9s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .status.busy::before { animation: none; } }
+
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--line); }
+  .stats div { padding: 12px 20px; border-right: 1px solid var(--line); }
+  .stats div:last-child { border-right: 0; }
+  .stats .label { display: block; margin-bottom: 6px; font-size: 9.5px; }
+  .stats b { font-weight: 400; font-size: 15px; }
+
+  .code { flex: 1; overflow: auto; font-size: 13.5px; line-height: 1.65; background: #050505; max-height: 68vh; min-height: 320px; }
+  .code table { border-collapse: collapse; width: 100%; }
+  .code td { padding: 0 14px; vertical-align: top; white-space: pre; }
+  .code.wrap td { white-space: pre-wrap; word-break: break-word; }
+  .code td.ln { color: #3a3a42; text-align: right; user-select: none; width: 1%; border-right: 1px solid var(--line); white-space: pre; }
+  .cm { color: #55705f; } .kw { color: var(--red-hi); } .st { color: #cfa57c; } .nm { color: #8fb5c9; }
+
+  /* ---------- api reference ---------- */
+  .docs { padding-top: 64px; display: flex; flex-direction: column; gap: 18px; max-width: 920px; }
+  .docs h1 { font-family: var(--wide); font-weight: 400; font-size: clamp(28px, 4vw, 44px); margin: 0 0 12px; color: #c9c9cd; }
+  .docs p { color: var(--dim); line-height: 1.7; margin: 0; font-size: 14px; }
+  .docs .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+  .docs h3 { font-family: var(--wide); font-weight: 400; font-size: 17px; color: #bdbdc2; margin: 18px 0 0; }
+  .route-meta { color: var(--dim); font-size: 12px; margin-top: 6px; line-height: 1.5; }
+  .routes { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .pre-wrap { position: relative; }
+  pre.block { margin: 0; padding: 16px; background: #050505; border: 1px solid var(--line); overflow: auto; font-size: 13.5px; line-height: 1.6; }
+  .pre-wrap button { position: absolute; top: 8px; right: 8px; padding: 6px 10px; font-size: 10px; background: var(--bg); }
+
+
+  /* ---------- input modes, footer, about ---------- */
+  .tabs { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .tabs button { padding: 10px 6px; font-size: 10.5px; letter-spacing: .18em; }
+  .tabs button + button { border-left: 0; }
+  textarea { width: 100%; min-height: 150px; resize: vertical; font: inherit; font-size: 12.5px; color: var(--text); background: #050505; border: 1px solid var(--line-hi); padding: 12px; }
+  textarea::placeholder { color: var(--faint); }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .link-btn { font-size: 10.5px; letter-spacing: .26em; text-transform: uppercase; text-decoration: none; color: var(--red-hi); border: 1px solid var(--red); padding: 9px 14px; white-space: nowrap; }
+  .link-btn:hover { background: var(--red); color: #fff; }
+  .section-title .link-btn { margin-left: auto; }
+  footer { margin: 70px 0 0; padding-top: 22px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; font-size: 11px; letter-spacing: .2em; color: var(--faint); text-transform: uppercase; }
+  footer a { color: var(--dim); text-decoration: none; margin-left: 18px; } footer a:first-child { margin-left: 0; } footer a:hover { color: var(--red-hi); }
+  .docs { max-width: 980px; }
+  .docs h2 { font-family: var(--wide); font-weight: 400; font-size: 20px; color: #bdbdc2; margin: 34px 0 0; padding-top: 22px; border-top: 1px solid var(--line); }
+  .docs code { color: #cfa57c; font-size: 13px; }
+  .docs ul { margin: 0; padding-left: 20px; color: var(--dim); line-height: 1.8; font-size: 14px; }
+  .docs a { color: var(--red-hi); }
+  .tbl-wrap { overflow-x: auto; }
+  table.tbl { border-collapse: collapse; width: 100%; font-size: 13px; }
+  table.tbl th { text-align: left; font-weight: 400; font-size: 10px; letter-spacing: .28em; text-transform: uppercase; color: var(--dim); padding: 10px 14px; border-bottom: 1px solid var(--line-hi); white-space: nowrap; }
+  table.tbl td { padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--text); line-height: 1.55; }
+  table.tbl td:last-child { color: var(--dim); }
+  .back { align-self: flex-start; }
+
+  /* ---------- floating action, drop overlay, cursor ---------- */
+  .fab {
+    position: fixed; right: 30px; bottom: 30px; width: 44px; height: 44px; padding: 0; z-index: 8;
+    display: grid; place-items: center; background: var(--bg); border-color: var(--line-hi); color: var(--red);
+  }
+  .fab:hover:not(:disabled) { border-color: var(--red); color: var(--red-hi); }
+  .fab svg { width: 16px; height: 16px; fill: currentColor; }
+  .overlay { position: fixed; inset: 0; z-index: 40; background: rgba(7,7,7,.9); display: none; place-items: center; font-family: var(--wide); font-size: 22px; letter-spacing: .1em; border: 1px dashed var(--red); margin: 14px; pointer-events: none; }
+  .overlay.on { display: grid; }
+  .ring { position: fixed; left: 0; top: 0; width: 34px; height: 34px; margin: -17px 0 0 -17px; border: 1px solid #3a3a42; border-radius: 50%; pointer-events: none; z-index: 50; transition: width .15s, height .15s, margin .15s, border-color .15s; }
+  .ring.hot { width: 48px; height: 48px; margin: -24px 0 0 -24px; border-color: var(--red); }
+  @media (hover: none), (pointer: coarse) { .ring { display: none; } }
+
+  /* ---------- mobile ---------- */
+  @media (max-width: 720px) {
+    aside { position: static; width: auto; flex-direction: row; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 20px; border-right: 0; border-bottom: 1px solid var(--line); }
+    .logo small, .ver { display: none; }
+    nav { flex-direction: row; gap: 14px; }
+    nav a { padding: 8px 0; }
+    nav a[aria-current="page"] { padding-left: 0; }
+    nav a[aria-current="page"]::before { display: none; }
+    main { margin-left: 0; }
+    .hero { min-height: 82vh; }
+    .stats b { font-size: 13px; }
+    .stats div { padding: 10px 12px; }
+    .fab { right: 16px; bottom: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<aside>
+  <a class="logo" href="#/">KYNX<small>Kinetic control</small></a>
+  <nav aria-label="Primary">
+    <a href="#/" id="nav-dash">Dashboard</a>
+    <a href="#/about" id="nav-about">About / API</a>
+  </nav>
+  <div class="ver">V4</div>
+</aside>
+
+<main>
+  <!-- DASHBOARD -->
+  <div id="view-dash">
+    <section class="hero">
+      <h1 class="wordmark">KYNX</h1>
+      <p class="tagline">Kinetic control v4 // multi-dialect Lua decompiler</p>
+      <div class="bar"></div>
+      <a class="scroll-hint" href="#tool" id="scroll-hint">Scroll to decompile</a>
+    </section>
+
+    <div class="marquee" aria-hidden="true">
+      <div class="marquee-track">
+        <span>KINETIC CONTROL  /  LUA 5.1  /  5.2  /  5.3  /  5.4  /  LUAJIT 2.0  /  2.1  /  LUAU  /  MOONSCRIPT  /  TEAL  /  ELUA  /  </span>
+        <span>KINETIC CONTROL  /  LUA 5.1  /  5.2  /  5.3  /  5.4  /  LUAJIT 2.0  /  2.1  /  LUAU  /  MOONSCRIPT  /  TEAL  /  ELUA  /  </span>
+      </div>
+    </div>
+
+    <div class="section-title" id="tool"><h2>Decompiler</h2><span></span><a class="link-btn" href="#/about" id="about-btn">About / API</a></div>
+    <section class="tool">
+      <div class="stack">
+        <div class="panel">
+          <div class="panel-head"><span class="label">Bytecode upload</span><span class="label" id="engine-status">AUTO</span></div>
+          <div class="panel-body">
+            <div class="field"><div class="label">Language / dialect</div><select id="dialect" aria-label="Language or dialect">
+              <option value="auto">Auto detect</option>
+              <option value="lua5.1">Lua 5.1</option>
+              <option value="lua5.2">Lua 5.2</option>
+              <option value="lua5.3">Lua 5.3</option>
+              <option value="lua5.4">Lua 5.4</option>
+              <option value="lua5.5">Lua 5.5</option>
+              <option value="luajit20">LuaJIT 2.0</option>
+              <option value="luajit21">LuaJIT 2.1</option>
+              <option value="luau">Luau / Roblox</option>
+              <option value="moonscript">MoonScript → Lua</option>
+              <option value="teal">Teal → Lua</option>
+              <option value="elua">eLua / embedded Lua</option>
+            </select></div>
+            <div class="tabs" role="group" aria-label="Input mode">
+              <button data-mode="file" aria-pressed="true">File</button>
+              <button data-mode="hex" aria-pressed="false">Hex / Base64</button>
+              <button data-mode="raw" aria-pressed="false">Raw</button>
+            </div>
+            <div id="mode-file" class="stack" style="gap:14px">
+              <label class="drop" id="drop" tabindex="0">
+                <input type="file" id="file" accept=".luac,.lua,.luauc,.bin,*/*">
+                <b>Choose file or drop it anywhere</b>
+                <small>.luac / .lua / .luauc / .bin / any file, max 4 MB</small>
+              </label>
+              <div class="field"><div class="label">Selected file</div><div class="val" id="file-name">None</div></div>
+            </div>
+            <div id="mode-hex" hidden><textarea id="txt-hex" spellcheck="false" aria-label="Hex or Base64 bytecode" placeholder="Paste hex (1b 4c 75 61 ... or 0x1b,0x4c) or Base64 (G0x1YVQ...)"></textarea></div>
+            <div id="mode-raw" hidden><textarea id="txt-raw" spellcheck="false" aria-label="Raw bytecode text" placeholder="Paste raw bytecode text. Each character (code under 256) is sent as one byte"></textarea></div>
+            <div class="field"><div class="label">Renaming</div><select id="renaming" aria-label="Renaming type">
+              <option value="INFER">INFER: guess readable names</option>
+              <option value="RAW">RAW: keep register names</option>
+            </select></div>
+            <div class="row2"><button class="primary" id="go" disabled>Decompile</button><button id="dis" disabled>Disassemble</button></div>
+            <div class="hint">Ctrl + Enter</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="label">Language matrix</span></div>
+          <div class="language-matrix" id="language-matrix"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="label">This session</span></div>
+          <ul class="recent" id="recent"><li class="empty">Nothing decompiled yet</li></ul>
+        </div>
+      </div>
+
+      <div class="panel out">
+        <div class="panel-head">
+          <span class="label">Decompiled output</span>
+          <div class="tools">
+            <span class="status" id="status" role="status" aria-live="polite">Waiting for upload</span>
+            <button id="wrap" aria-pressed="false">Wrap</button>
+            <button id="copy" disabled>Copy</button>
+            <button id="save" disabled>Save .lua</button>
+          </div>
+        </div>
+        <div class="stats">
+          <div><span class="label">Input</span><b id="st-in">—</b></div>
+          <div><span class="label">Output lines</span><b id="st-lines">—</b></div>
+          <div><span class="label">Time</span><b id="st-time">—</b></div>
+        </div>
+        <div class="code" id="code" tabindex="0" aria-label="Decompiled output"></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ABOUT / API -->
+  <div id="view-about" class="docs" hidden>
+    <a class="link-btn back" href="#/">&larr; Decompiler</a>
+    <h1>About / API</h1>
+
+    <h2>About KYNX</h2>
+    <p><b>KYNX</b> (Kinetic Control v4) is a browser-based, multi-dialect Lua-family bytecode decompiler with a public HTTP API. Upload or paste compiled bytecode and get readable source back, no install needed.</p>
+    <p><b>Luau</b> is the Lua-derived language used by Roblox. It adds type annotations, <code>continue</code>, compound assignment and its own bytecode format (versions 3 to 14). KYNX detects the bytecode version from the header and routes the chunk to the matching engine: bundled WASM for Luau v3 to v7 and an optional external backend for newer versions.</p>
+    <h3>Supported languages</h3>
+    <ul>
+      <li>Luau / Roblox bytecode</li>
+      <li>Lua 5.1, 5.2, 5.3, 5.4, 5.5</li>
+      <li>LuaJIT 2.0 / 2.1 (2.0 depends on the backend)</li>
+      <li>MoonScript and Teal are catalogued: they compile to plain Lua, so upload the resulting Lua bytecode</li>
+    </ul>
+
+    <h2>Endpoints</h2>
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>Method</th><th>Route</th><th>Request body</th><th>Response</th></tr>
+      <tr><td>POST</td><td><code>/decompile</code></td><td>JSON <code>{"script":"&lt;base64&gt;"}</code> or a Base64 body</td><td>Plain text source</td></tr>
+      <tr><td>GET</td><td><code>/health</code></td><td>none</td><td>JSON status of the site and the engine</td></tr>
+      <tr><td>POST</td><td><code>/api/decompile</code></td><td>JSON <code>{"bytecodeBase64":"..."}</code></td><td>JSON <code>{ok, output}</code></td></tr>
+      <tr><td>POST</td><td><code>/v4/decompile</code>, <code>/v1/decompile</code>, <code>/bytefall/decompile</code></td><td>same as <code>/decompile</code></td><td>Plain text</td></tr>
+      <tr><td>POST</td><td><code>/luau/decompile</code></td><td>Base64 text or JSON; Luau only</td><td>Plain text</td></tr>
+      <tr><td>POST</td><td><code>/lua/decompile</code></td><td>Base64 text or JSON with optional <code>dialect</code></td><td>Plain text</td></tr>
+      <tr><td>POST</td><td><code>/konstant/decompile</code></td><td>Raw bytecode bytes, <code>text/plain</code></td><td>Plain text</td></tr>
+      <tr><td>POST</td><td><code>/x2125/decompile</code></td><td>JSON <code>{"script","options"}</code></td><td>JSON <code>{data}</code></td></tr>
+      <tr><td>POST</td><td><code>/api/disassemble</code></td><td>JSON</td><td>501, not supported yet</td></tr>
+      <tr><td>GET</td><td><code>/languages</code></td><td>none</td><td>JSON language catalog</td></tr>
+    </table></div>
+
+    <h3>POST /decompile</h3>
+    <p>Send the Base64 of the bytecode file in <code>script</code>. Optional fields: <code>dialect</code> and <code>options</code>.</p>
+    <div class="pre-wrap"><pre class="block" id="req">{
+  "script": "&lt;base64-encoded-bytecode&gt;",
+  "dialect": "luau",
+  "options": { "naming": { "mode": "heuristic" } }
+}</pre><button data-copy="req">Copy</button></div>
+    <p>Success returns the decompiled source as plain text with status 200.</p>
+    <div class="pre-wrap"><pre class="block" id="resp">-- decompiled by kynx
+print("hello")</pre><button data-copy="resp">Copy</button></div>
+
+    <h3>GET /health</h3>
+    <p>Use it to check that the site and the decompiler engine are up. It returns 200 when everything works and 502 when the engine is unreachable.</p>
+    <div class="pre-wrap"><pre class="block" id="health-ex">{
+  "ok": true,
+  "site": "kynx-site-v4",
+  "maxBytes": 4194304,
+  "upstream": { "ok": true, "engine": "kynx-multi-backend", "lua": true, "luajit": true, "luau": true }
+}</pre><button data-copy="health-ex">Copy</button></div>
+
+    <h2>Examples</h2>
+    <p>cURL: JSON request.</p>
+    <div class="pre-wrap"><pre class="block" id="curl">curl -X POST https://kynx-site.pages.dev/decompile \
+  -H "Content-Type: application/json" \
+  -d "{\"script\":\"$(base64 -w0 script.luauc)\"}"</pre><button data-copy="curl">Copy</button></div>
+    <p>cURL: Base64 body with query parameters, and the health check.</p>
+    <div class="pre-wrap"><pre class="block" id="curl2">curl -X POST "https://kynx-site.pages.dev/luau/decompile?renaming=RAW" \
+  --data-binary "$(base64 -w0 script.luauc)"
+
+curl -X POST https://kynx-site.pages.dev/konstant/decompile \
+  -H "Content-Type: text/plain" --data-binary @script.luauc
+
+curl https://kynx-site.pages.dev/health</pre><button data-copy="curl2">Copy</button></div>
+    <p>JavaScript (browser or Node 18+).</p>
+    <div class="pre-wrap"><pre class="block" id="js">const bytes = new Uint8Array(await file.arrayBuffer());
+let bin = "";
+for (let i = 0; i &lt; bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+
+const res = await fetch("https://kynx-site.pages.dev/decompile", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ script: btoa(bin) }),
+});
+if (!res.ok) throw new Error(res.status + " " + await res.text());
+console.log(await res.text());</pre><button data-copy="js">Copy</button></div>
+    <p>Roblox executor loader (compatible executors only, not plain Lua).</p>
+    <div class="pre-wrap"><pre class="block" id="loader">loadstring(game:HttpGet("https://kynx-site.pages.dev/loader.lua"))()</pre><button data-copy="loader">Copy</button></div>
+
+    <h2>Reference</h2>
+    <h3>Request headers</h3>
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>Header</th><th>Value</th><th>Notes</th></tr>
+      <tr><td><code>Content-Type</code></td><td><code>application/json</code></td><td>For JSON routes. Use <code>text/plain</code> for <code>/konstant/decompile</code></td></tr>
+      <tr><td><code>Accept</code></td><td><code>*/*</code></td><td>Optional</td></tr>
+      <tr><td><code>Authorization</code></td><td><code>Bearer &lt;token&gt;</code></td><td>Not needed on the public site. Only a protected upstream engine requires it</td></tr>
+    </table></div>
+    <h3>Response headers</h3>
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>Header</th><th>Value</th><th>Notes</th></tr>
+      <tr><td><code>Content-Type</code></td><td><code>text/plain; charset=utf-8</code> or <code>application/json</code></td><td>Depends on the route</td></tr>
+      <tr><td><code>Access-Control-Allow-Origin</code></td><td><code>*</code></td><td>Browsers can call the API directly; <code>OPTIONS</code> preflight is answered with 204</td></tr>
+    </table></div>
+    <h3>Query parameters</h3>
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>Parameter</th><th>Values</th><th>Notes</th></tr>
+      <tr><td><code>dialect</code></td><td><code>lua5.1</code> .. <code>lua5.5</code>, <code>luajit</code>, <code>luau</code></td><td>Overrides header auto-detection. A <code>dialect</code> in the JSON body wins over the query</td></tr>
+      <tr><td><code>renaming</code></td><td><code>INFER</code> | <code>RAW</code></td><td>INFER guesses readable names, RAW keeps register names. Ignored when the body has <code>options</code></td></tr>
+      <tr><td><code>mode</code></td><td><code>disasm</code></td><td>Disassembly is not supported yet and returns 501</td></tr>
+    </table></div>
+    <h3>Response codes</h3>
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>Code</th><th>Meaning</th><th>Notes</th></tr>
+      <tr><td>200</td><td>OK</td><td>Source returned</td></tr>
+      <tr><td>400</td><td>Bad request</td><td>Empty body, invalid JSON or invalid Base64</td></tr>
+      <tr><td>401</td><td>Unauthorized</td><td>Upstream rejected the token</td></tr>
+      <tr><td>405</td><td>Method not allowed</td><td>Decompile routes need POST</td></tr>
+      <tr><td>413</td><td>Too large</td><td>Over the 4 MB limit</td></tr>
+      <tr><td>422</td><td>Cannot decompile</td><td>Invalid bytecode or unsupported version</td></tr>
+      <tr><td>429</td><td>Rate limited</td><td>Too many queued requests from one IP</td></tr>
+      <tr><td>500</td><td>Internal error</td><td>The engine failed</td></tr>
+      <tr><td>501</td><td>Not implemented</td><td>Disassembly mode</td></tr>
+      <tr><td>502</td><td>Upstream unreachable</td><td>The engine is down. Check <code>/health</code></td></tr>
+    </table></div>
+
+    <h2>Limits and notes</h2>
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>Item</th><th>Value</th></tr>
+      <tr><td>Request / upload size</td><td>4 MB (the engine hard limit is 8 MB)</td></tr>
+      <tr><td>Per-IP queue</td><td>5 requests, extra ones get 429</td></tr>
+      <tr><td>Luau bytecode versions</td><td>Bundled WASM v3 to v7; v8 to v14 need the external backend</td></tr>
+    </table></div>
+    <ul>
+      <li>Output is a reconstruction. Local names and comments are guessed, so review it before relying on it.</li>
+      <li>Stripped bytecode has no debug info, so INFER names are heuristic.</li>
+      <li>Request formats differ slightly between routes. Match the route you call.</li>
+      <li>Only upload bytecode you are allowed to analyse.</li>
+    </ul>
+
+    <h2>Links</h2>
+    <ul>
+      <li><a href="https://kynx-site.pages.dev/" target="_blank" rel="noopener">Official site</a></li>
+      <li><a href="https://kynx-site.pages.dev/loader.lua" target="_blank" rel="noopener">Loader</a></li>
+      <li><a href="https://github.com/luau/UniversalSynSaveInstance" target="_blank" rel="noopener">UniversalSynSaveInstance</a></li>
+      <li><a href="https://github.com/luau-lang/luau" target="_blank" rel="noopener">Luau</a></li>
+    </ul>
+
+    <h2>Alternatives</h2>
+    <div class="tbl-wrap"><table class="tbl">
+      <tr><th>Project</th><th>Stack</th></tr>
+      <tr><td><a href="https://github.com/VortexDQ/decompiler" target="_blank" rel="noopener">VortexDQ/decompiler</a></td><td>Python, offline</td></tr>
+      <tr><td><a href="https://github.com/PumbaaDev/luau-decompiler" target="_blank" rel="noopener">PumbaaDev/luau-decompiler</a></td><td>Rust, offline</td></tr>
+      <tr><td><a href="https://github.com/atrexus/unluau" target="_blank" rel="noopener">atrexus/unluau</a></td><td>C#</td></tr>
+      <tr><td><a href="https://github.com/xgladius/luauDec" target="_blank" rel="noopener">xgladius/luauDec</a></td><td>C++</td></tr>
+      <tr><td><b>KYNX</b></td><td>Web + API</td></tr>
+    </table></div>
+    <a class="link-btn back" href="#/">&larr; Back to Decompiler</a>
+  </div>
+
+  <footer><span>KYNX v4 // Kinetic control</span><span><a href="#/about">About</a><a href="#/">Decompiler</a><a href="https://github.com/luau-lang/luau" target="_blank" rel="noopener">Luau</a></span></footer>
+</main>
+
+<button class="fab" id="fab" aria-label="Jump to decompiler" title="Jump to decompiler">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg>
+</button>
+<div class="overlay" id="overlay">Drop to load</div>
+<div class="ring" id="ring"></div>
+
+<script>
+(() => {
+  // Same-origin endpoint served by _worker.js.
+  const API_URL = "/decompile";
+  const API_SHOWN = location.protocol.startsWith("http") ? location.origin + API_URL : API_URL;
+  const MAX_BYTES = 4 * 1024 * 1024;
+  const $ = (id) => document.getElementById(id);
+
+  const drop = $("drop"), fileInput = $("file"), fileName = $("file-name"), dialectEl = $("dialect");
+  const engineStatusEl = $("engine-status"), languageMatrixEl = $("language-matrix");
+  const goBtn = $("go"), disBtn = $("dis"), copyBtn = $("copy"), saveBtn = $("save"), wrapBtn = $("wrap");
+  const statusEl = $("status"), codeEl = $("code"), recentEl = $("recent");
+  let file = null, outputText = "", busy = false, inputMode = "file", lastName = "script";
+
+  const LANGUAGES = [
+    { id: "lua5.1", name: "Lua 5.1", mode: "bytecode", note: "Standard Lua bytecode" },
+    { id: "lua5.2", name: "Lua 5.2", mode: "bytecode", note: "Standard Lua bytecode" },
+    { id: "lua5.3", name: "Lua 5.3", mode: "bytecode", note: "Standard Lua bytecode" },
+    { id: "lua5.4", name: "Lua 5.4", mode: "bytecode", note: "Standard Lua bytecode" },
+    { id: "lua5.5", name: "Lua 5.5", mode: "bytecode", note: "Standard Lua bytecode" },
+    { id: "luajit20", name: "LuaJIT 2.0", mode: "bytecode", note: "Catalogued; engine compatibility depends on backend" },
+    { id: "luajit21", name: "LuaJIT 2.1", mode: "bytecode", note: "LuaJIT dump version 2" },
+    { id: "luau", name: "Luau", mode: "bytecode", note: "Roblox / Luau bytecode" },
+    { id: "moonscript", name: "MoonScript", mode: "source", note: "Compiles to Lua; no separate bytecode format" },
+    { id: "teal", name: "Teal", mode: "source", note: "Typed Lua; types are erased when compiled" },
+    { id: "elua", name: "eLua", mode: "alias", note: "Embedded Lua; use matching Lua 5.x bytecode" },
+  ];
+
+  function renderLanguageMatrix() {
+    languageMatrixEl.innerHTML = LANGUAGES.map(x => {
+      const cls = x.mode === "bytecode" ? "ready" : "catalog";
+      const label = x.mode === "bytecode" ? "BYTECODE" : x.mode === "source" ? "SOURCE → LUA" : "LUA FAMILY";
+      return `<div class="lang ${cls}"><b>${esc(x.name)}</b><small>${label} · ${esc(x.note)}</small></div>`;
+    }).join("");
+  }
+  const history = [];
+
+  if (location.protocol.startsWith("http")) {
+    document.querySelectorAll("pre.block").forEach((el) => { el.textContent = el.textContent.split("https://kynx-site.pages.dev").join(location.origin); });
+  }
+
+  /* ---------- routing ---------- */
+  const isAbout = () => /^#\/(about|api)/.test(location.hash);
+  function route() {
+    const api = isAbout();
+    $("view-dash").hidden = api;
+    $("view-about").hidden = !api;
+    $("fab").hidden = api;
+    const on = api ? $("nav-about") : $("nav-dash"), off = api ? $("nav-dash") : $("nav-about");
+    on.setAttribute("aria-current", "page"); off.removeAttribute("aria-current");
+    if (api) window.scrollTo(0, 0);
+    document.title = api ? "KYNX — About / API" : "KYNX — Luau decompiler";
+  }
+  window.addEventListener("hashchange", route);
+  route();
+
+  const toTool = () => {
+    if (isAbout()) location.hash = "#/";
+    requestAnimationFrame(() => $("tool").scrollIntoView({ behavior: "smooth", block: "start" }));
+  };
+  $("fab").addEventListener("click", toTool);
+  $("scroll-hint").addEventListener("click", (e) => { e.preventDefault(); toTool(); });
+
+  /* ---------- helpers ---------- */
+  const setStatus = (t, kind = "") => { statusEl.textContent = t; statusEl.className = "status " + kind; };
+  const fmtBytes = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(2)} MB`;
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  renderLanguageMatrix();
+  renderLanguageMatrix();
+
+  const KW = new Set("and break do else elseif end false for function if in local nil not or repeat return then true until while continue export type".split(" "));
+  function highlight(line) {
+    const i = line.indexOf("--");
+    const code = i === -1 ? line : line.slice(0, i), comment = i === -1 ? "" : line.slice(i);
+    const html = esc(code).replace(
+      /("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|\b([A-Za-z_][A-Za-z0-9_]*)\b|\b(\d+(?:\.\d+)?)\b/g,
+      (m, s, w, n) => s ? `<span class="st">${s}</span>` : (w && KW.has(w)) ? `<span class="kw">${w}</span>` : n ? `<span class="nm">${n}</span>` : m
+    );
+    return html + (comment ? `<span class="cm">${esc(comment)}</span>` : "");
+  }
+  function render(text) {
+    codeEl.innerHTML = "<table>" + text.split(/\r?\n/).map((l, n) =>
+      `<tr><td class="ln">${n + 1}</td><td>${highlight(l)}</td></tr>`).join("") + "</table>";
+  }
+  render('-- kynx\n-- upload a .luauc file and click "Decompile".\n');
+
+  function showStats(inBytes, lines, ms) {
+    $("st-in").textContent = inBytes == null ? "—" : fmtBytes(inBytes);
+    $("st-lines").textContent = lines == null ? "—" : lines.toLocaleString();
+    $("st-time").textContent = ms == null ? "—" : ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(2)} s`;
+  }
+
+  function renderHistory() {
+    if (!history.length) { recentEl.innerHTML = '<li class="empty">Nothing decompiled yet</li>'; return; }
+    recentEl.innerHTML = history.map((h, i) =>
+      `<li><button data-i="${i}"><span>${esc(h.name)}</span><span>${h.lines} lines</span></button></li>`).join("");
+  }
+  recentEl.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-i]"); if (!b) return;
+    const h = history[+b.dataset.i];
+    outputText = h.text; render(h.text); showStats(h.bytes, h.lines, h.ms);
+    copyBtn.disabled = saveBtn.disabled = false;
+    setStatus(`Loaded ${h.name}`, "ok");
+  });
+
+  /* ---------- file selection ---------- */
+  function pick(f) {
+    if (!f) return;
+    if (f.size > MAX_BYTES) {
+      file = null; fileName.textContent = "None"; updateGo();
+      setStatus(`File is ${(f.size / 1048576).toFixed(1)} MB. Limit is 4 MB.`, "err");
+      return;
+    }
+    file = f; fileName.textContent = f.name; updateGo(); setStatus("Ready");
+  }
+  fileInput.addEventListener("change", () => pick(fileInput.files[0]));
+  drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); } });
+
+  const overlay = $("overlay");
+  let dragDepth = 0;
+  window.addEventListener("dragenter", (e) => { e.preventDefault(); dragDepth++; overlay.classList.add("on"); });
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; overlay.classList.remove("on"); } });
+  window.addEventListener("drop", (e) => {
+    e.preventDefault(); dragDepth = 0; overlay.classList.remove("on");
+    if (isAbout()) location.hash = "#/";
+    pick(e.dataTransfer.files[0]);
+  });
+
+  function toBase64(buf) {
+    const bytes = new Uint8Array(buf), CH = 0x8000;
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += CH) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+    return btoa(bin);
+  }
+
+  /* ---------- input modes ---------- */
+  const hasInput = () => inputMode === "file" ? !!file : $("txt-" + inputMode).value.trim().length > 0;
+  function updateGo() { goBtn.disabled = disBtn.disabled = busy || !hasInput(); }
+  function setMode(m) {
+    inputMode = m;
+    document.querySelectorAll("[data-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === m)));
+    ["file", "hex", "raw"].forEach((k) => { $("mode-" + k).hidden = k !== m; });
+    updateGo();
+  }
+  document.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+  ["txt-hex", "txt-raw"].forEach((id) => $(id).addEventListener("input", updateGo));
+
+  function parseHexOrBase64(text) {
+    const raw = text.replace(/[\s,;:]/g, "");
+    const t = raw.replace(/0x/gi, "").replace(/\\x/gi, "");
+    if (!t) throw new Error("Input is empty.");
+    if (/^[0-9a-fA-F]+$/.test(t) && t.length % 2 === 0) {
+      const out = new Uint8Array(t.length / 2);
+      for (let i = 0; i < out.length; i++) out[i] = parseInt(t.substr(i * 2, 2), 16);
+      return out;
+    }
+    const b64 = raw.replace(/-/g, "+").replace(/_/g, "/");
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) throw new Error("Not valid hex or Base64.");
+    let bin;
+    try { bin = atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, "=")); } catch { throw new Error("Not valid Base64."); }
+    return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  }
+  function parseRaw(text) {
+    for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) > 255) return new TextEncoder().encode(text);
+    return Uint8Array.from(text, (c) => c.charCodeAt(0));
+  }
+
+  /* ---------- pre-flight check: make sure the bytes really are compiled Lua ---------- */
+  const hx = (b, n = 8) => Array.from(b.subarray(0, n), (x) => x.toString(16).padStart(2, "0")).join(" ");
+  const isBytecodeHeader = (b) =>
+    b.length > 4 && ((b[0] === 0x1b && b[1] === 0x4c) /* Lua 5.x / LuaJIT */ || (b[0] >= 3 && b[0] <= 14)) /* Luau */;
+  function normalizeBytecode(bytes) {
+    // 1) UTF-8 BOM
+    if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) bytes = bytes.subarray(3);
+    if (isBytecodeHeader(bytes)) return bytes;
+    // 2) Extra bytes in front of the real chunk (shebang line, wrapper, header)
+    for (let i = 1; i < Math.min(bytes.length - 4, 4096); i++) {
+      if (bytes[i] === 0x1b && bytes[i + 1] === 0x4c && (bytes[i + 2] === 0x75 || bytes[i + 2] === 0x4a)) {
+        setStatus(`Skipped ${i} extra byte(s) before the bytecode header.`, "");
+        return bytes.subarray(i);
+      }
+    }
+    // 3) Readable text: hex / Base64 of bytecode, or plain Lua source
+    let looksText = true;
+    for (let i = 0; i < Math.min(bytes.length, 2048); i++) {
+      const c = bytes[i];
+      if (c > 0x7e || (c < 0x20 && c !== 9 && c !== 10 && c !== 13)) { looksText = false; break; }
+    }
+    if (looksText) {
+      const text = new TextDecoder().decode(bytes);
+      try {
+        const dec = parseHexOrBase64(text);
+        if (isBytecodeHeader(dec)) { setStatus("Input was hex/Base64 text. Decoded it to bytecode.", ""); return dec; }
+      } catch {}
+      throw new Error("This file is readable text (Lua source code), not compiled bytecode, so there is nothing to decompile. "
+        + "Upload a compiled .luac / .luauc file instead.");
+    }
+    // 4) Binary, but not a known header: obfuscated / encrypted / packed / corrupt
+    throw new Error(`Not recognised as Lua bytecode (first bytes: ${hx(bytes)}). A valid file starts with "1B 4C 75 61" `
+      + "(Lua 5.x), \"1B 4C 4A\" (LuaJIT) or a Luau version byte. This one is probably obfuscated, encrypted, compressed "
+      + "(zip/gzip) or corrupted. Unpack or deobfuscate it first.");
+  }
+
+  // Returns the bytes to send, whichever input mode is active.
+  async function readInput() {
+    let bytes;
+    if (inputMode === "file") { bytes = new Uint8Array(await file.arrayBuffer()); lastName = file.name; }
+    else if (inputMode === "hex") { bytes = parseHexOrBase64($("txt-hex").value); lastName = "hex-input"; }
+    else { bytes = parseRaw($("txt-raw").value); lastName = "raw-input"; }
+    if (!bytes.length) throw new Error("Input is empty.");
+    bytes = normalizeBytecode(bytes);
+    if (bytes.length > MAX_BYTES) throw new Error(`Input is ${(bytes.length / 1048576).toFixed(1)} MB. Limit is 4 MB.`);
+    return bytes;
+  }
+
+  /* ---------- dialect ---------- */
+  const DIALECT_MAP = {
+    auto: undefined, "lua5.1": "lua5.1", "lua5.2": "lua5.2", "lua5.3": "lua5.3", "lua5.4": "lua5.4", "lua5.5": "lua5.5",
+    luajit20: "luajit", luajit21: "luajit", luau: "luau", elua: undefined, moonscript: undefined, teal: undefined
+  };
+  dialectEl.addEventListener("change", () => {
+    const id = dialectEl.value;
+    const item = LANGUAGES.find(x => x.id === id);
+    engineStatusEl.textContent = item ? (item.mode === "bytecode" ? "BYTECODE" : "SOURCE/CATALOG") : "AUTO";
+    if (item?.mode !== "bytecode" && id !== "auto") {
+      setStatus(`${item.name}: ${item.note}. Upload compiled Lua bytecode for decompilation.`, "");
+    } else if (hasInput()) setStatus("Ready");
+  });
+
+  /* ---------- decompile ---------- */
+  function requestBody(bytes) {
+    const naming = $("renaming").value === "RAW" ? "simple" : "heuristic";
+    const dialect = DIALECT_MAP[dialectEl.value];
+    return { script: toBase64(bytes.buffer), ...(dialect ? { dialect } : {}),
+      options: { renamingType: $("renaming").value, naming: { mode: naming } } };
+  }
+  async function decompile() {
+    if (!hasInput() || busy) return;
+    busy = true; updateGo(); copyBtn.disabled = saveBtn.disabled = true;
+    setStatus("Decompiling", "busy");
+    const t0 = performance.now();
+    try {
+      const bytes = await readInput();
+      const res = await fetch(API_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody(bytes))
+      });
+      const text = await res.text();
+      if (res.status === 429) throw new Error("Rate limited. Wait a minute and retry.");
+      if (!res.ok) throw new Error(`Server returned ${res.status}. ${text.slice(0, 160)}`);
+      const ms = performance.now() - t0, lines = text.split(/\r?\n/).length;
+      outputText = text; render(text); showStats(bytes.length, lines, ms);
+      history.unshift({ name: lastName, text, lines, bytes: bytes.length, ms });
+      if (history.length > 8) history.pop();
+      renderHistory();
+      copyBtn.disabled = saveBtn.disabled = false;
+      setStatus("Done", "ok");
+    } catch (err) {
+      setStatus(err instanceof TypeError
+        ? "Request blocked or network error. Check your connection and /health."
+        : err.message, "err");
+    } finally { busy = false; updateGo(); }
+  }
+  async function disassemble() {
+    if (!hasInput() || busy) return;
+    busy = true; updateGo(); setStatus("Disassembling", "busy");
+    try {
+      const bytes = await readInput();
+      const res = await fetch("/api/disassemble", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bytecodeBase64: toBase64(bytes.buffer) })
+      });
+      const text = await res.text();
+      if (res.status === 501) throw new Error("Disassembly is not supported by the engine yet.");
+      if (!res.ok) throw new Error(`Server returned ${res.status}. ${text.slice(0, 160)}`);
+      let out = text;
+      try { const j = JSON.parse(text); out = j.output ?? j.data ?? text; } catch {}
+      outputText = out; render(out); showStats(bytes.length, out.split(/\r?\n/).length, null);
+      copyBtn.disabled = saveBtn.disabled = false;
+      setStatus("Disassembly done", "ok");
+    } catch (err) { setStatus(err.message, "err"); }
+    finally { busy = false; updateGo(); }
+  }
+  goBtn.addEventListener("click", decompile);
+  disBtn.addEventListener("click", disassemble);
+  window.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && !$("view-dash").hidden) { e.preventDefault(); decompile(); }
+  });
+
+  /* ---------- output actions ---------- */
+  wrapBtn.addEventListener("click", () => {
+    const on = codeEl.classList.toggle("wrap");
+    wrapBtn.setAttribute("aria-pressed", String(on));
+  });
+  async function copyText(text, done) {
+    try { await navigator.clipboard.writeText(text); done(true); } catch { done(false); }
+  }
+  copyBtn.addEventListener("click", () => copyText(outputText, (ok) =>
+    setStatus(ok ? "Copied" : "Copy failed. Select the output manually.", ok ? "ok" : "err")));
+  saveBtn.addEventListener("click", () => {
+    const name = lastName.replace(/\.[^.]+$/, "") + ".lua";
+    const url = URL.createObjectURL(new Blob([outputText], { type: "text/plain" }));
+    const a = Object.assign(document.createElement("a"), { href: url, download: name });
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  });
+  document.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", () => {
+    copyText($(b.dataset.copy).textContent, (ok) => {
+      const prev = b.textContent; b.textContent = ok ? "Copied" : "Failed";
+      setTimeout(() => (b.textContent = prev), 1200);
+    });
+  }));
+
+  /* ---------- cursor ring (eased) ---------- */
+  const ring = $("ring");
+  if (matchMedia("(hover: hover) and (pointer: fine)").matches) {
+    let tx = -100, ty = -100, x = -100, y = -100;
+    window.addEventListener("pointermove", (e) => {
+      tx = e.clientX; ty = e.clientY;
+      ring.classList.toggle("hot", !!e.target.closest("a, button, label"));
+    });
+    (function loop() {
+      x += (tx - x) * 0.22; y += (ty - y) * 0.22;
+      ring.style.transform = `translate(${x}px, ${y}px)`;
+      requestAnimationFrame(loop);
+    })();
+  }
+})();
+</script>
+</body>
+</html>

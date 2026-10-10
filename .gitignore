@@ -1,4 +1,7 @@
 target/
 __pycache__/
-
-graphify-out/
+*.pyc
+node_modules/
+.wrangler/
+.dev.vars
+.env
