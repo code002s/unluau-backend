@@ -1,6 +1,6 @@
 # unluau-backend
 
-**Декомпилятор Luau / Roblox-байткода (версии 3–14) в виде HTTP-сервиса.**
+**Luau / Roblox bytecode decompiler (v3–v14) as an HTTP service.**
 Luau / Roblox bytecode decompiler (v3–v14) as an HTTP service — the `LUAU_BACKEND_URL` for the KYNX Worker.
 
 ```
@@ -10,30 +10,30 @@ Roblox executor ──► KYNX Worker (Cloudflare) ──► unluau-backend (Ren
                                       readable Luau source ◄┘
 ```
 
-## Что это даёт / Features
+## Features
 
-- Читает **Luau bytecode v3–v14** (актуальный Roblox использует v13+).
-- Принимает дампы из executor со «скрамбленными» опкодами (`op * 227 mod 256`) — определяет и раскодирует сам.
-- Движок [unluac-rs](https://github.com/x3zvawq/unluac-rs) (MIT): построение CFG → анализ потока данных → структурирование → код. Корректные `for`/`while`, `and`/`or`, `continue`, строки, `local`-области.
-- Имена локальных переменных восстанавливаются эвристикой, если в байткоде нет debug-имён.
-- Векторные константы выводятся как `Vector3.new(...)`.
-- Сложный поток управления, который нельзя структурировать, выводится как псевдокод вместо ошибки.
+- Reads **Luau bytecode v3–v14** (current Roblox uses v13+).
+- Accepts dumps from executors with "scrambled" opcodes (`op * 227 mod 256`) — detects and decodes them automatically.
+- Engine: [unluac-rs](https://github.com/x3zvawq/unluac-rs) (MIT): CFG construction → data flow analysis → structuring → code generation. Correct `for`/`while`, `and`/`or`, `continue`, strings, and `local` scopes.
+- Local variable names are recovered using heuristics if debug names are missing from the bytecode.
+- Vector constants are emitted as `Vector3.new(...)`.
+- Complex control flows that cannot be structured are emitted as pseudocode instead of returning an error.
 
-## Качество / Measured quality
+## Measured Quality
 
-Проверка: ~356 Luau-скриптов, скомпилированных настоящим компилятором Luau в v13, результат прогнан через парсер Luau (`luau-compile --only-parse`).
+Validation: ~356 Luau scripts compiled with the official Luau compiler (v13), processed through the Luau parser (`luau-compile --only-parse`).
 
-| | Unluau (прежний движок) | unluac-rs + этот патч |
+| | Unluau (previous engine) | unluac-rs + this patch |
 |---|---|---|
-| Файлов декомпилировано | 336 / 356 | **352 / 356** |
-| Результат с валидным синтаксисом | ≈ 57 % | **351 / 352** |
-| Версии 9, 11, 12, 13, 14 | — | **19 / 19 каждая** |
+| Files decompiled | 336 / 356 | **352 / 356** |
+| Valid syntax results | ≈ 57 % | **351 / 352** |
+| Versions 9, 11, 12, 13, 14 | — | **19 / 19 each** |
 
-Это проверка **синтаксиса и структуры**, а не доказательство идентичного поведения: декомпилятор не может вернуть исходные имена, комментарии и типы, а код без debug-информации получает сгенерированные имена (`Parent2`, `value3`). Всегда проверяйте результат в Roblox Studio.
+This is a check of **syntax and structure**, not a proof of identical behavior: the decompiler cannot recover original names, comments, or types; code without debug information receives generated names (`Parent2`, `value3`). Always verify results in Roblox Studio.
 
 ## API
 
-`POST /decompile` (или `POST /`) — тело запроса: сырой байткод.
+`POST /decompile` (or `POST /`) — request body: raw bytecode.
 
 ```bash
 curl -i --data-binary "@script.luauc" \
@@ -41,67 +41,67 @@ curl -i --data-binary "@script.luauc" \
      https://unluau-backend.onrender.com/decompile
 ```
 
-| Статус | Значение |
+| Status | Value |
 |---|---|
-| `200 text/plain` | исходник Luau |
-| `400` | пустое тело |
-| `401` | нужен `Authorization: Bearer <BACKEND_TOKEN>` (если токен задан) |
-| `413` | тело больше 16 МБ |
-| `422` | это не поддерживаемый байткод, или декомпилятор отказал (`{"error": "..."}`) |
-| `500` / `504` | внутренняя ошибка / таймаут |
+| `200 text/plain` | Luau source code |
+| `400` | empty body |
+| `401` | `Authorization: Bearer <BACKEND_TOKEN>` required (if token is set) |
+| `413` | body larger than 16 MB |
+| `422` | unsupported bytecode or decompiler failure (`{"error": "..."}`) |
+| `500` / `504` | internal error / timeout |
 
 `GET /health` → `{"ok": true, "engine": "unluac-rs", "luauVersions": "3-14"}`
 
-Переменные окружения: `PORT`, `BACKEND_TOKEN` (необязательно), `MAX_CONCURRENT` (по умолчанию 2), `DECOMPILE_TIMEOUT` (секунды, по умолчанию 60).
+Environment variables: `PORT`, `BACKEND_TOKEN` (optional), `MAX_CONCURRENT` (default 2), `DECOMPILE_TIMEOUT` (seconds, default 60).
 
-## Деплой / Deploy
+## Deploy
 
-1. Запушьте папку в GitHub-репозиторий, к которому подключён Docker-сервис на Render.
-2. Первая сборка компилирует Rust (≈ 5–10 минут).
-3. В Worker (`kynx-full/upstream-worker/wrangler.toml`):
+1. Push the folder to the GitHub repository connected to the Render Docker service.
+2. The first build compiles Rust (≈ 5–10 minutes).
+3. In the Worker (`kynx-full/upstream-worker/wrangler.toml`):
    ```toml
    [vars]
    LUAU_BACKEND_URL = "https://unluau-backend.onrender.com/decompile"
    ```
-   затем `npx wrangler deploy`. Проверка: `/health` Worker'а показывает `"luauBackend": true`.
+   then `npx wrangler deploy`. Verification: the Worker's `/health` should show `"luauBackend": true`.
 
-Бесплатный план Render «засыпает»; первый запрос после простоя может быть дольше 30 секунд (таймаут Worker'а) — сначала откройте `/health`.
+Render's free plan "sleeps"; the first request after inactivity may take over 30 seconds (Worker timeout) — open `/health` first.
 
-## Что изменено в unluac-rs / What the patch adds
+## What the patch adds to unluac-rs
 
-`unluac-rs/` — копия upstream (MIT), у которой Luau-парсер расширен с v7 до v14:
+`unluac-rs/` — a copy of the upstream (MIT) with the Luau parser expanded from v7 to v14:
 
-| Версия | Поддержка |
+| Version | Support |
 |---|---|
-| v8 | 64-битные целочисленные константы |
-| v9 | изменения только в рантайме |
-| v10 | константы-«формы классов» (разбираются; сами опкоды классов отвергаются) |
-| v11 | `CALLFB`, таблица feedback-слотов |
-| v12 | префикс размера у каждой функции, inline cost |
-| v13 | векторные константы двойной точности |
+| v8 | 64-bit integer constants |
+| v9 | runtime-only changes |
+| v10 | "class form" constants (parsed; class opcodes are rejected) |
+| v11 | `CALLFB`, feedback slot table |
+| v12 | size prefix for each function, inline cost |
+| v13 | double-precision vector constants |
 | v14 | `FASTPCALL` |
 
-Файлы: `src/parser/dialect/luau/{raw,parser}.rs`, `src/parser/reader.rs`, `src/transformer/dialect/luau/lower*`.
-Декодирование Roblox-опкодов — `luau_descramble.py`.
+Files: `src/parser/dialect/luau/{raw,parser}.rs`, `src/parser/reader.rs`, `src/transformer/dialect/luau/lower*`.
+Roblox opcode decoding — `luau_descramble.py`.
 
-## Локальный запуск / Local
+## Local Execution
 
 ```bash
-cd unluac-rs && cargo build --release -p unluac-cli      # нужен Rust ≥ 1.94
+cd unluac-rs && cargo build --release -p unluac-cli      # Rust ≥ 1.94 required
 UNLUAC_BIN=$PWD/target/release/unluac-cli PORT=8080 python3 ../server.py
 curl --data-binary @../test/fixtures/v13_basic_O1_g1.luauc localhost:8080/decompile
 ```
 
-Образцы для проверки: `test/fixtures/` (обычный v13, тот же файл в Roblox-кодировке, v14, Roblox-подобный скрипт).
+Verification samples: `test/fixtures/` (standard v13, same file in Roblox encoding, v14, Roblox-like script).
 
-## Известные ограничения / Limits
+## Limits
 
-- Редкие большие скрипты не декомпилируются: несовпадение аргументов `FASTCALL` или редкие паники upstream — в этом случае возвращается `422/500` с причиной.
-- Опкоды экспериментальных Luau-классов (`NEWCLASS`, `NEWCLASSMEMBER`, `CMPPROTO`) не поддерживаются.
-- Без debug-имён локальные переменные получают сгенерированные имена.
-- Результат — реконструкция, а не оригинальный код.
+- Rare large scripts may fail to decompile: `FASTCALL` argument mismatch or rare upstream panics — in these cases, `422/500` with the reason is returned.
+- Experimental Luau class opcodes (`NEWCLASS`, `NEWCLASSMEMBER`, `CMPPROTO`) are not supported.
+- Without debug names, local variables receive generated names.
+- The result is a reconstruction, not the original code.
 
-## Лицензии / Credits
+## Licenses / Credits
 
 - [unluac-rs](https://github.com/x3zvawq/unluac-rs) — MIT (`unluac-rs/LICENSE.txt`).
-- Формат байткода — по исходникам [Luau](https://github.com/luau-lang/luau) (MIT).
+- Bytecode format — based on [Luau](https://github.com/luau-lang/luau) sources (MIT).

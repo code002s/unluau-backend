@@ -1,9 +1,10 @@
 #![forbid(unsafe_code)]
 
-//! 这个 crate 提供反编译流水线的库接口。
+//! This crate provides the library interface for the decompilation pipeline.
 //!
-//! 单独保留库层的原因是让 parser、transformer 和后续分析层在 CLI 稳定前
-//! 就可以被单测、集成测试和调试工具直接复用。
+//! The library layer is maintained separately to allow the parser, transformer, and
+//! subsequent analysis layers to be reused directly by unit tests, integration tests,
+//! and debugging tools before the CLI is stabilized.
 
 pub mod ast;
 pub mod debug;
@@ -22,5 +23,6 @@ mod value_semantics;
 
 pub use lua_string::LuaString;
 
-/// Lua/Luau 编译器普遍把单函数局部槽限制在 200 左右；留出参数与控制变量余量。
+/// Lua/Luau compilers generally limit single-function local slots to around 200;
+/// this leaves room for parameters and control variables.
 pub(crate) const SOURCE_LOCAL_LIMIT: usize = 180;
