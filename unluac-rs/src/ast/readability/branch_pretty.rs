@@ -32,15 +32,14 @@ impl AstRewritePass for BranchPrettyPass {
             );
 
             // Top Tier: Boolean Return Folding
-            if let AstStmt::If(ref mut if_stmt) = stmt {
-                if fold_boolean_return(if_stmt) {
+            if let AstStmt::If(ref mut if_stmt) = stmt
+                && fold_boolean_return(if_stmt) {
                     flattened_stmts.push(AstStmt::Return(Box::new(AstReturn {
                         values: vec![if_stmt.cond.clone()],
                     })));
                     changed = true;
                     continue;
                 }
-            }
 
             let folded = if is_constant_if {
                 fold_constant_if(stmt)
@@ -147,9 +146,9 @@ fn fold_boolean_return(if_stmt: &mut AstIf) -> bool {
         let then_stmts = &if_stmt.then_block.stmts;
         let else_stmts = if_stmt.else_block.as_ref().unwrap().stmts.as_slice();
 
-        if then_stmts.len() == 1 && else_stmts.len() == 1 {
-            if let (AstStmt::Return(then_ret), AstStmt::Return(else_ret)) = (&then_stmts[0], &else_stmts[0]) {
-                if then_ret.values.len() == 1 && else_ret.values.len() == 1 {
+        if then_stmts.len() == 1 && else_stmts.len() == 1
+            && let (AstStmt::Return(then_ret), AstStmt::Return(else_ret)) = (&then_stmts[0], &else_stmts[0])
+                && then_ret.values.len() == 1 && else_ret.values.len() == 1 {
                     let val_then = &then_ret.values[0];
                     let val_else = &else_ret.values[0];
 
@@ -161,8 +160,6 @@ fn fold_boolean_return(if_stmt: &mut AstIf) -> bool {
                         return true;
                     }
                 }
-            }
-        }
     }
     false
 }

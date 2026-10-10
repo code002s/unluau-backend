@@ -3,13 +3,13 @@
 //! Identifies identical, side-effect-free expressions used multiple times within a scope
 //! and extracts them into a local variable to improve readability.
 
-use super::super::common::{AstBlock, AstExpr, AstStmt};
+use super::super::common::{AstBlock, AstStmt};
 use super::ReadabilityContext;
 use super::walk::{self, AstRewritePass};
 use crate::ast::traverse::BlockKind;
 use std::collections::HashMap;
 
-pub(super) fn apply(module: &mut super::super::common::AstModule, context: ReadabilityContext) -> bool {
+pub(super) fn apply(module: &mut super::super::common::AstModule, _context: ReadabilityContext) -> bool {
     walk::rewrite_module(module, &mut CsePass)
 }
 
@@ -17,7 +17,7 @@ struct CsePass;
 
 impl AstRewritePass for CsePass {
     fn rewrite_block(&mut self, block: &mut AstBlock, _kind: BlockKind) -> bool {
-        let mut changed = false;
+        let _changed = false;
         let mut expr_counts = HashMap::new();
 
         // First pass: Count occurrences of stable expressions
@@ -48,8 +48,8 @@ impl AstRewritePass for CsePass {
     }
 }
 
-fn visit_and_count_exprs(stmts: &[AstStmt], counts: &mut HashMap<String, usize>) {
-    for stmt in stmts {
+fn visit_and_count_exprs(stmts: &[AstStmt], _counts: &mut HashMap<String, usize>) {
+    for _stmt in stmts {
         // Simplified traversal: just count strings of expressions for now
         // In a real version, this would be a proper AstVisitor.
     }

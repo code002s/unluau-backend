@@ -45,66 +45,6 @@ impl AstRewritePass for LuauIdiomsPass {
 
 impl LuauIdiomsPass {
     fn collapse_wait_for_child_chains(&mut self, block: &mut AstBlock) -> bool {
-        let mut changed = false;
-        let mut i = 0;
-        while i < block.stmts.len() {
-            // Look for: local a = p:WaitForChild("A")
-            if let AstStmt::LocalDecl(decl) = &block.stmts[i]
-                && decl.bindings.len() == 1
-                && decl.values.len() == 1
-                && is_wait_for_child_call(&decl.values[0])
-            {
-                let binding_id = decl.bindings[0].id;
-
-                // Check if this variable is used only as the base of another WaitForChild call immediately after
-                if i + 1 < block.stmts.len() {
-                    if let AstStmt::LocalDecl(next_decl) = &block.stmts[i+1]
-                        && next_decl.bindings.len() == 1
-                        && next_decl.values.len() == 1
-                        && is_wait_for_child_call(&next_decl.values[0])
-                    {
-                        let next_val = &next_decl.values[0];
-                        if let AstExpr::Call(call) = next_val {
-                            if let AstExpr::FieldAccess(field) = &call.callee {
-                                if let AstExpr::Var(crate::ast::common::AstNameRef::Local(id)) = &field.base {
-                                    if let crate::ast::common::AstBindingRef::Local(lid) = binding_id {
-                                        if *id == lid {
-                                            // Found a chain: local a = ...; local b = a:WaitForChild(...)
-                                            // Now verify 'a' is not used anywhere else in the block
-                                            if !self.is_binding_used_elsewhere(block, i, binding_id) {
-                                                // Collapse: replace the first decl with a dummy or remove it
-                                                // and update the second decl's base to be the first decl's value.
-                                                let first_val = decl.values[0].clone();
-
-                                                // Update the second decl's value
-                                                let mut next_val_mut = next_decl.values[0].clone();
-                                                if let AstExpr::Call(mut call_inner) = next_val_mut {
-                                                    if let AstExpr::FieldAccess(mut field_inner) = call_inner.callee {
-                                                        field_inner.base = first_val;
-                                                        call_inner.callee = AstExpr::FieldAccess(field_inner);
-                                                    }
-                                                    next_val_mut = AstExpr::Call(call_inner);
-                                                }
-
-                                                // This requires mutable access to block.stmts[i+1]
-                                                // Since we are in a loop, we can use indexed access.
-                                                // We'll remove the first decl and update the second.
-
-                                                // To avoid borrow checker issues with block.stmts,
-                                                // we'll do this carefully.
-                                                break; // Need to handle via indexed removal/update
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            i += 1;
-        }
-        // Re-implementing with actual removal/update logic
         self.perform_collapse(block)
     }
 
@@ -131,12 +71,12 @@ impl LuauIdiomsPass {
                     let second_decl = &block.stmts[i+1];
                     let second_val = if let AstStmt::LocalDecl(d) = second_decl { &d.values[0] } else { unreachable!() };
 
-                    if let AstExpr::Call(call) = second_val {
-                        if let AstExpr::FieldAccess(field) = &call.callee {
-                            if let AstExpr::Var(crate::ast::common::AstNameRef::Local(id)) = &field.base {
-                                if let crate::ast::common::AstBindingRef::Local(lid) = binding_id {
-                                    if *id == lid {
-                                        if !self.is_binding_used_elsewhere(block, i, binding_id) {
+                    if let AstExpr::Call(call) = second_val
+                        && let AstExpr::FieldAccess(field) = &call.callee
+                            && let AstExpr::Var(crate::ast::common::AstNameRef::Local(id)) = &field.base
+                                && let crate::ast::common::AstBindingRef::Local(lid) = binding_id
+                                    && *id == lid
+                                        && !self.is_binding_used_elsewhere(block, i, binding_id) {
                                             // COLLAPSE
                                             let mut new_second_val = second_val.clone();
                                             if let AstExpr::Call(mut call_mut) = new_second_val {
@@ -157,11 +97,6 @@ impl LuauIdiomsPass {
                                             changed = true;
                                             continue; // Don't increment i, check current index again
                                         }
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
             }
             i += 1;
@@ -176,23 +111,17 @@ impl LuauIdiomsPass {
             // but we are checking if there are OTHER uses.
             if idx == current_idx + 1 {
                 // Check if it's used in something OTHER than the base of the call
-                if let AstStmt::LocalDecl(decl) = stmt {
-                    if decl.values.len() == 1 {
-                        if let AstExpr::Call(call) = &decl.values[0] {
-                            if let AstExpr::FieldAccess(field) = &call.callee {
-                                if let AstExpr::Var(crate::ast::common::AstNameRef::Local(id_found)) = &field.base {
-                                    if let crate::ast::common::AstBindingRef::Local(lid) = id {
-                                        if *id_found == lid {
+                if let AstStmt::LocalDecl(decl) = stmt
+                    && decl.values.len() == 1
+                        && let AstExpr::Call(call) = &decl.values[0]
+                            && let AstExpr::FieldAccess(field) = &call.callee
+                                && let AstExpr::Var(crate::ast::common::AstNameRef::Local(id_found)) = &field.base
+                                    && let crate::ast::common::AstBindingRef::Local(lid) = id
+                                        && *id_found == lid {
                                             // This is the "intended" use. We check for others.
                                             // But since it's the only value, there are no other uses in this stmt.
                                             continue;
                                         }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
             }
 
             if contains_local_read_stmt(stmt, id) {
@@ -204,11 +133,10 @@ impl LuauIdiomsPass {
 }
 
 fn is_wait_for_child_call(expr: &AstExpr) -> bool {
-    if let AstExpr::Call(call) = expr {
-        if let AstExpr::FieldAccess(field) = &call.callee {
+    if let AstExpr::Call(call) = expr
+        && let AstExpr::FieldAccess(field) = &call.callee {
             return field.field == "WaitForChild";
         }
-    }
     false
 }
 
@@ -228,7 +156,7 @@ fn contains_local_read_stmt(stmt: &AstStmt, id: crate::ast::common::AstBindingRe
         AstStmt::If(if_s) => {
             contains_local_read(&if_s.cond, id) ||
             if_s.then_block.stmts.iter().any(|s| contains_local_read_stmt(s, id)) ||
-            if_s.else_block.as_ref().map_or(false, |b| b.stmts.iter().any(|s| contains_local_read_stmt(s, id)))
+            if_s.else_block.as_ref().is_some_and(|b| b.stmts.iter().any(|s| contains_local_read_stmt(s, id)))
         }
         _ => false,
     }
@@ -237,11 +165,10 @@ fn contains_local_read_stmt(stmt: &AstStmt, id: crate::ast::common::AstBindingRe
 fn contains_local_read_lvalue(lval: &crate::ast::common::AstLValue, id: crate::ast::common::AstBindingRef) -> bool {
     match lval {
         crate::ast::common::AstLValue::Name(name) => {
-            if let crate::ast::common::AstNameRef::Local(id_found) = name {
-                if let crate::ast::common::AstBindingRef::Local(lid) = id {
+            if let crate::ast::common::AstNameRef::Local(id_found) = name
+                && let crate::ast::common::AstBindingRef::Local(lid) = id {
                     return *id_found == lid;
                 }
-            }
             false
         }
         crate::ast::common::AstLValue::FieldAccess(field) => contains_local_read(&field.base, id),

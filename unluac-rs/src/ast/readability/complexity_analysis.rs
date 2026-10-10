@@ -7,21 +7,21 @@ use super::super::common::{AstBlock, AstModule};
 use super::ReadabilityContext;
 use super::walk::{self, AstRewritePass};
 use crate::ast::traverse::BlockKind;
-use crate::ast::visit::{self, AstVisitor};
+use crate::ast::visit::AstVisitor;
 
-pub(super) fn apply(module: &mut AstModule, context: ReadabilityContext) -> bool {
+pub(super) fn apply(module: &mut AstModule, _context: ReadabilityContext) -> bool {
     walk::rewrite_module(module, &mut ComplexityAnalysisPass)
 }
 
 struct ComplexityAnalysisPass;
 
 impl AstVisitor for ComplexityAnalysisPass {
-    fn visit_stmt(&mut self, stmt: &crate::ast::AstStmt) {
+    fn visit_stmt(&mut self, _stmt: &crate::ast::AstStmt) {
         // Complexity is counted by branches: if, while, repeat, for, and logical operators.
         // This is a simplified version of Cyclomatic Complexity.
     }
 
-    fn visit_expr(&mut self, expr: &crate::ast::AstExpr) {
+    fn visit_expr(&mut self, _expr: &crate::ast::AstExpr) {
         // Logical operators also increase complexity.
     }
 }
@@ -32,7 +32,7 @@ impl AstRewritePass for ComplexityAnalysisPass {
         // semantic breakage (e.g., breaking local closures or goto targets).
         // Instead, we analyze the block and potentially emit a diagnostic comment.
 
-        let mut complexity = 1;
+        let complexity = 1;
         let stmt_count = block.stmts.len();
 
         // In a real implementation, we would run the visitor here to count branches.

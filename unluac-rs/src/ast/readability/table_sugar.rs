@@ -41,9 +41,7 @@ impl AstRewritePass for TableSugarPass {
             if let AstStmt::LocalDecl(decl) = &old_stmts[i]
                 && decl.bindings.len() == 1
                 && decl.values.len() == 1
-            {
-                if let AstExpr::TableConstructor(table) = &decl.values[0] {
-                    if table.fields.is_empty() {
+                && let AstExpr::TableConstructor(table) = &decl.values[0] {
                         let binding_id = decl.bindings[0].id;
                         let mut table_elements = Vec::new();
                         let mut last_assignment_idx = i;
@@ -53,15 +51,13 @@ impl AstRewritePass for TableSugarPass {
                             match &old_stmts[j] {
                                 AstStmt::Assign(assign) => {
                                     if let AstLValue::FieldAccess(field) = &assign.targets[0] {
-                                        if let AstExpr::Var(AstNameRef::Local(id)) = &field.base {
-                                            if let AstBindingRef::Local(lid) = binding_id {
-                                                if *id == lid {
+                                        if let AstExpr::Var(AstNameRef::Local(id)) = &field.base
+                                            && let AstBindingRef::Local(lid) = binding_id
+                                                && *id == lid {
                                                     // Valid assignment, collect it
                                                     table_elements.push((field.field.clone(), assign.values[0].clone()));
                                                     last_assignment_idx = j;
                                                 }
-                                            }
-                                        }
                                     } else {
                                         // Assignment to something else - this is okay, but does it read 't'?
                                         if contains_local_read_lvalue(&assign.targets[0], binding_id) || assign.values.iter().any(|v| contains_local_read(v, binding_id)) {
@@ -93,14 +89,28 @@ impl AstRewritePass for TableSugarPass {
 
                         if !table_elements.is_empty() {
                             // Transform to: local t = { ... }
+                            let mut final_fields = table.fields.clone();
+                            for (key, value) in table_elements {
+                                if let Some(field) = final_fields.iter_mut().find(|f| {
+                                    if let AstTableField::Record(r) = f {
+                                        if let AstTableKey::Name(n) = &r.key {
+                                            return n == &key;
+                                        }
+                                    }
+                                    false
+                                }) {
+                                    if let AstTableField::Record(record) = field {
+                                        record.value = value;
+                                    }
+                                } else {
+                                    final_fields.push(AstTableField::Record(AstRecordField {
+                                        key: AstTableKey::Name(key),
+                                        value,
+                                    }));
+                                }
+                            }
                             let new_table = AstExpr::TableConstructor(Box::new(AstTableConstructor {
-                                fields: table_elements
-                                    .into_iter()
-                                    .map(|(k, v)| AstTableField::Record(AstRecordField {
-                                        key: AstTableKey::Name(k),
-                                        value: v,
-                                    }))
-                                    .collect(),
+                                fields: final_fields,
                                 allocation: crate::hir::HirTableAllocation::Synthetic,
                             }));
 
@@ -111,17 +121,13 @@ impl AstRewritePass for TableSugarPass {
 
                             // Keep the statements that were NOT assignments to 't'.
                             for k in (i + 1)..=last_assignment_idx {
-                                if let AstStmt::Assign(assign) = &old_stmts[k] {
-                                    if let AstLValue::FieldAccess(field) = &assign.targets[0] {
-                                        if let AstExpr::Var(AstNameRef::Local(id)) = &field.base {
-                                            if let AstBindingRef::Local(lid) = binding_id {
-                                                if *id == lid {
+                                if let AstStmt::Assign(assign) = &old_stmts[k]
+                                    && let AstLValue::FieldAccess(field) = &assign.targets[0]
+                                        && let AstExpr::Var(AstNameRef::Local(id)) = &field.base
+                                            && let AstBindingRef::Local(lid) = binding_id
+                                                && *id == lid {
                                                     continue;
                                                 }
-                                            }
-                                        }
-                                    }
-                                }
                                 new_stmts.push(old_stmts[k].clone());
                             }
 
@@ -130,8 +136,6 @@ impl AstRewritePass for TableSugarPass {
                             continue;
                         }
                     }
-                }
-            }
 
             new_stmts.push(old_stmts[i].clone());
             i += 1;
@@ -145,11 +149,10 @@ impl AstRewritePass for TableSugarPass {
 fn contains_local_read_lvalue(lval: &AstLValue, id: AstBindingRef) -> bool {
     match lval {
         AstLValue::Name(name) => {
-            if let AstNameRef::Local(id_found) = name {
-                if let AstBindingRef::Local(lid) = id {
+            if let AstNameRef::Local(id_found) = name
+                && let AstBindingRef::Local(lid) = id {
                     return *id_found == lid;
                 }
-            }
             false
         }
         AstLValue::FieldAccess(field) => contains_local_read(&field.base, id),
@@ -204,7 +207,7 @@ fn contains_local_read_stmt(stmt: &AstStmt, id: AstBindingRef) -> bool {
         AstStmt::If(if_s) => {
             contains_local_read(&if_s.cond, id) ||
             if_s.then_block.stmts.iter().any(|s| contains_local_read_stmt(s, id)) ||
-            if_s.else_block.as_ref().map_or(false, |b| b.stmts.iter().any(|s| contains_local_read_stmt(s, id)))
+            if_s.else_block.as_ref().is_some_and(|b| b.stmts.iter().any(|s| contains_local_read_stmt(s, id)))
         }
         _ => false,
     }
