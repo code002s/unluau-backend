@@ -43,6 +43,9 @@ mod expression_folder;
 mod constant_folder;
 mod type_propagator;
 mod cfg_unroller;
+mod global_dataflow;
+mod dead_code_eliminator;
+mod semantic_naming_engine;
 pub(crate) mod walk;
 
 use crate::debug::DebugFilters;
@@ -426,6 +429,24 @@ pub(super) fn simplify_hir(
                 }
                 if index == 30 {
                     return expression_folder::fold_expressions_in_proto(proto);
+                }
+                if index == 31 {
+                    return constant_folder::simplify_constant_folding_in_proto(proto);
+                }
+                if index == 32 {
+                    return type_propagator::propagate_types_in_proto(proto);
+                }
+                if index == 33 {
+                    return cfg_unroller::unroll_cfg_in_proto(proto);
+                }
+                if index == 34 {
+                    return global_dataflow::analyze_global_dataflow(module);
+                }
+                if index == 35 {
+                    return dead_code_eliminator::eliminate_dead_code_in_proto(proto);
+                }
+                if index == 36 {
+                    return semantic_naming_engine::apply_semantic_naming_in_proto(proto);
                 }
                 let effects = (matches!(index, 3 | 15 | 16 | 19)
                     || index == 4 && dialect == DecompileDialect::Luau)
