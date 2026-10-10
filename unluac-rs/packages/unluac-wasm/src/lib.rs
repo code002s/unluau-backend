@@ -1,0 +1,447 @@
+#![forbid(unsafe_code)]
+
+//! 这个 crate 承载 `unluac` 的 wasm 边界。
+//!
+//! 边界层只接受 JS 友好的字符串和对象，再把它们映射回核心库的强类型选项。
+//! 这样 CLI、wasm 和后续 `unluac-js` 都能共享同一套枚举协议，而不是各自依赖
+//! Rust enum 的内部表示。
+
+use serde::de::IgnoredAny;
+use serde::{Deserialize, Serialize};
+use std::str::FromStr;
+use wasm_bindgen::prelude::*;
+
+use unluac::decompile::{
+    DecompileDialect, DecompileOptions, GenerateMode, LuauVectorConstructor, LuauVectorSize,
+    NamingMode, NumberFormat, QuoteStyle, TableStyle, decompile as run_decompile,
+};
+use unluac::parser::{ParseMode, StringDecodeMode, StringEncoding};
+
+mod rich;
+
+pub use unluac as core;
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct WasmDecompileOptions {
+    dialect: Option<String>,
+    parse: Option<WasmParseOptions>,
+    debug: Option<IgnoredAny>,
+    readability: Option<WasmReadabilityOptions>,
+    naming: Option<WasmNamingOptions>,
+    generate: Option<WasmGenerateOptions>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct WasmParseOptions {
+    mode: Option<String>,
+    string_encoding: Option<String>,
+    string_decode_mode: Option<String>,
+    ignore_debug: Option<bool>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct WasmReadabilityOptions {
+    return_inline_max_complexity: Option<usize>,
+    index_inline_max_complexity: Option<usize>,
+    args_inline_max_complexity: Option<usize>,
+    access_base_inline_max_complexity: Option<usize>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct WasmNamingOptions {
+    mode: Option<String>,
+    debug_like_include_function: Option<bool>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct WasmGenerateOptions {
+    mode: Option<String>,
+    indent_width: Option<usize>,
+    max_line_length: Option<usize>,
+    number_format: Option<String>,
+    quote_style: Option<String>,
+    table_style: Option<String>,
+    luau_vector_constructor: Option<WasmLuauVectorConstructor>,
+    comment: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WasmLuauVectorConstructor {
+    library: Option<String>,
+    constructor: String,
+    size: u8,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WasmSupportedOptionValues {
+    dialects: Vec<&'static str>,
+    parse_modes: Vec<&'static str>,
+    string_encodings: Vec<&'static str>,
+    string_decode_modes: Vec<&'static str>,
+    naming_modes: Vec<&'static str>,
+    generate_modes: Vec<&'static str>,
+    quote_styles: Vec<&'static str>,
+    number_formats: Vec<&'static str>,
+    table_styles: Vec<&'static str>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WasmBridgeError {
+    code: &'static str,
+    message: String,
+    field: Option<&'static str>,
+}
+
+type BridgeResult<T> = Result<T, WasmBridgeError>;
+
+/// 输入识别只消费 Parser 的协议规则；非字节码返回 null，损坏的已识别头部仍报告错误。
+#[wasm_bindgen(js_name = detectDialect)]
+pub fn detect_dialect_wasm(bytes: &[u8]) -> Result<JsValue, JsValue> {
+    match unluac::parser::detect_dialect(bytes) {
+        Ok(dialect) => Ok(JsValue::from_str(<&str>::from(dialect))),
+        Err(unluac::parser::ParseError::InvalidSignature { .. }) => Ok(JsValue::NULL),
+        Err(error) => Err(
+            WasmBridgeError::new("input-detection-failed", error.to_string(), None).into_js_value(),
+        ),
+    }
+}
+
+#[wasm_bindgen(js_name = decompile)]
+pub fn decompile_wasm(bytes: &[u8], options: JsValue) -> Result<JsValue, JsValue> {
+    let options = parse_wasm_options(options).map_err(WasmBridgeError::into_js_value)?;
+    let result = run_decompile(bytes, options).map_err(|error| {
+        WasmBridgeError::new("decompile-failed", error.to_string(), None).into_js_value()
+    })?;
+
+    let generated_source = result
+        .state
+        .generated
+        .map(|generated| generated.source)
+        .ok_or_else(|| {
+            WasmBridgeError::new(
+                "missing-generated-source",
+                "expected generate stage output, but no source was produced",
+                None,
+            )
+            .into_js_value()
+        })?;
+
+    to_js_value(&generated_source)
+}
+
+/// 返回结构化 JSON，包含 proto 树、CFG 和反编译源码。
+///
+/// 与 `decompile` 的区别：`decompile` 只返回源码字符串，而 `decompileRich`
+/// 额外返回 proto 元数据和 CFG 拓扑，供前端可视化使用。
+#[wasm_bindgen(js_name = decompileRich)]
+pub fn decompile_rich_wasm(bytes: &[u8], options: JsValue) -> Result<JsValue, JsValue> {
+    let options = parse_wasm_options(options).map_err(WasmBridgeError::into_js_value)?;
+    let result = run_decompile(bytes, options).map_err(|error| {
+        WasmBridgeError::new("decompile-failed", error.to_string(), None).into_js_value()
+    })?;
+
+    let rich = rich::project_rich_result(&result);
+    to_js_value(&rich)
+}
+
+#[wasm_bindgen(js_name = supportedOptionValues)]
+pub fn supported_option_values() -> Result<JsValue, JsValue> {
+    to_js_value(&WasmSupportedOptionValues {
+        dialects: dialect_labels(),
+        parse_modes: parse_mode_labels(),
+        string_encodings: string_encoding_labels(),
+        string_decode_modes: string_decode_mode_labels(),
+        naming_modes: naming_mode_labels(),
+        generate_modes: generate_mode_labels(),
+        quote_styles: quote_style_labels(),
+        number_formats: number_format_labels(),
+        table_styles: table_style_labels(),
+    })
+}
+
+fn parse_wasm_options(value: JsValue) -> BridgeResult<DecompileOptions> {
+    let options = if value.is_undefined() || value.is_null() {
+        WasmDecompileOptions::default()
+    } else {
+        serde_wasm_bindgen::from_value(value)
+            .map_err(|error| WasmBridgeError::new("invalid-options", error.to_string(), None))?
+    };
+
+    options.into_core_options()
+}
+
+impl WasmDecompileOptions {
+    fn into_core_options(self) -> BridgeResult<DecompileOptions> {
+        let mut options = default_wasm_decompile_options();
+
+        if let Some(value) = self.dialect {
+            options.dialect = parse_option("dialect", &value)?;
+        }
+        if let Some(parse) = self.parse {
+            parse.apply(&mut options)?;
+        }
+        if self.debug.is_some() {
+            return Err(WasmBridgeError::new(
+                "unsupported-option",
+                "the published wasm build omits debug and timing support to keep the bundle small",
+                Some("debug"),
+            ));
+        }
+        if let Some(readability) = self.readability {
+            readability.apply(&mut options);
+        }
+        if let Some(naming) = self.naming {
+            naming.apply(&mut options)?;
+        }
+        if let Some(generate) = self.generate {
+            generate.apply(&mut options)?;
+        }
+
+        Ok(options)
+    }
+}
+
+impl WasmParseOptions {
+    fn apply(self, options: &mut DecompileOptions) -> BridgeResult<()> {
+        if let Some(value) = self.mode {
+            options.parse.mode = parse_option("parse.mode", &value)?;
+        }
+        if let Some(value) = self.string_encoding {
+            options.parse.string_encoding = parse_option("parse.stringEncoding", &value)?;
+        }
+        if let Some(value) = self.string_decode_mode {
+            options.parse.string_decode_mode = parse_option("parse.stringDecodeMode", &value)?;
+        }
+        if let Some(value) = self.ignore_debug {
+            options.parse.ignore_debug = value;
+        }
+        Ok(())
+    }
+}
+
+impl WasmReadabilityOptions {
+    fn apply(self, options: &mut DecompileOptions) {
+        if let Some(value) = self.return_inline_max_complexity {
+            options.readability.return_inline_max_complexity = value;
+        }
+        if let Some(value) = self.index_inline_max_complexity {
+            options.readability.index_inline_max_complexity = value;
+        }
+        if let Some(value) = self.args_inline_max_complexity {
+            options.readability.args_inline_max_complexity = value;
+        }
+        if let Some(value) = self.access_base_inline_max_complexity {
+            options.readability.access_base_inline_max_complexity = value;
+        }
+    }
+}
+
+impl WasmNamingOptions {
+    fn apply(self, options: &mut DecompileOptions) -> BridgeResult<()> {
+        if let Some(value) = self.mode {
+            options.naming.mode = parse_option("naming.mode", &value)?;
+        }
+        if let Some(value) = self.debug_like_include_function {
+            options.naming.debug_like_include_function = value;
+        }
+        Ok(())
+    }
+}
+
+impl WasmGenerateOptions {
+    fn apply(self, options: &mut DecompileOptions) -> BridgeResult<()> {
+        if let Some(value) = self.mode {
+            options.generate.mode = parse_option("generate.mode", &value)?;
+        }
+        if let Some(value) = self.indent_width {
+            options.generate.indent_width = value;
+        }
+        if let Some(value) = self.max_line_length {
+            options.generate.max_line_length = value;
+        }
+        if let Some(value) = self.quote_style {
+            options.generate.quote_style = parse_option("generate.quoteStyle", &value)?;
+        }
+        if let Some(value) = self.number_format {
+            options.generate.number_format = parse_option("generate.numberFormat", &value)?;
+        }
+        if let Some(value) = self.table_style {
+            options.generate.table_style = parse_option("generate.tableStyle", &value)?;
+        }
+        if let Some(value) = self.luau_vector_constructor {
+            options.generate.luau_vector_constructor = Some(LuauVectorConstructor {
+                library: value.library,
+                constructor: value.constructor,
+                size: match value.size {
+                    3 => LuauVectorSize::Three,
+                    4 => LuauVectorSize::Four,
+                    size => {
+                        return Err(WasmBridgeError::new(
+                            "invalid-option-value",
+                            format!("unsupported Luau vector size: {size}"),
+                            Some("generate.luauVectorConstructor.size"),
+                        ));
+                    }
+                },
+            });
+        }
+        if let Some(value) = self.comment {
+            options.generate.comment = value;
+        }
+        Ok(())
+    }
+}
+
+fn parse_option<T>(field: &'static str, value: &str) -> BridgeResult<T>
+where
+    T: FromStr,
+{
+    value.parse().map_err(|_| {
+        WasmBridgeError::new(
+            "invalid-enum-value",
+            format!("unsupported value {value:?} for `{field}`"),
+            Some(field),
+        )
+    })
+}
+
+fn default_wasm_decompile_options() -> DecompileOptions {
+    let mut options = DecompileOptions::default();
+    options.generate.mode = GenerateMode::Permissive;
+    options
+}
+
+impl WasmBridgeError {
+    fn new(code: &'static str, message: impl Into<String>, field: Option<&'static str>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            field,
+        }
+    }
+
+    fn into_js_value(self) -> JsValue {
+        serde_wasm_bindgen::to_value(&self).unwrap_or_else(|error| {
+            JsValue::from_str(&format!(
+                "bridge error serialization failed: {}; original error [{}]: {}",
+                error, self.code, self.message
+            ))
+        })
+    }
+}
+
+fn to_js_value<T>(value: &T) -> Result<JsValue, JsValue>
+where
+    T: Serialize,
+{
+    serde_wasm_bindgen::to_value(value)
+        .map_err(|error| WasmBridgeError::new("bridge-serialize-failed", error.to_string(), None))
+        .map_err(WasmBridgeError::into_js_value)
+}
+
+fn dialect_labels() -> Vec<&'static str> {
+    [
+        DecompileDialect::Auto,
+        DecompileDialect::Lua51,
+        DecompileDialect::Lua52,
+        DecompileDialect::Lua53,
+        DecompileDialect::Lua54,
+        DecompileDialect::Lua55,
+        DecompileDialect::Luajit,
+        DecompileDialect::Luau,
+    ]
+    .into_iter()
+    .map(<&'static str>::from)
+    .collect()
+}
+
+fn parse_mode_labels() -> Vec<&'static str> {
+    [ParseMode::Strict, ParseMode::Permissive]
+        .into_iter()
+        .map(<&'static str>::from)
+        .collect()
+}
+
+fn string_encoding_labels() -> Vec<&'static str> {
+    // 常用编码预设列表；实际上 StringEncoding::from_str 支持 encoding_rs 的所有编码标签
+    [
+        "auto",
+        "utf-8",
+        "gbk",
+        "gb18030",
+        "big5",
+        "shift_jis",
+        "euc-jp",
+        "euc-kr",
+        "windows-1252",
+        "windows-1251",
+        "koi8-r",
+        "windows-874",
+    ]
+    .into_iter()
+    .filter_map(|label| label.parse::<StringEncoding>().ok())
+    .map(StringEncoding::as_str)
+    .collect()
+}
+
+fn string_decode_mode_labels() -> Vec<&'static str> {
+    [StringDecodeMode::Strict, StringDecodeMode::Lossy]
+        .into_iter()
+        .map(<&'static str>::from)
+        .collect()
+}
+
+fn naming_mode_labels() -> Vec<&'static str> {
+    [
+        NamingMode::DebugLike,
+        NamingMode::Simple,
+        NamingMode::Heuristic,
+    ]
+    .into_iter()
+    .map(<&'static str>::from)
+    .collect()
+}
+
+fn generate_mode_labels() -> Vec<&'static str> {
+    [GenerateMode::Strict, GenerateMode::Permissive]
+        .into_iter()
+        .map(<&'static str>::from)
+        .collect()
+}
+
+fn quote_style_labels() -> Vec<&'static str> {
+    [
+        QuoteStyle::PreferDouble,
+        QuoteStyle::PreferSingle,
+        QuoteStyle::MinEscape,
+    ]
+    .into_iter()
+    .map(<&'static str>::from)
+    .collect()
+}
+
+fn number_format_labels() -> Vec<&'static str> {
+    [NumberFormat::Decimal, NumberFormat::Hex]
+        .into_iter()
+        .map(<&'static str>::from)
+        .collect()
+}
+
+fn table_style_labels() -> Vec<&'static str> {
+    [
+        TableStyle::Compact,
+        TableStyle::Balanced,
+        TableStyle::Expanded,
+    ]
+    .into_iter()
+    .map(<&'static str>::from)
+    .collect()
+}

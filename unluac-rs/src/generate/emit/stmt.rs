@@ -1,0 +1,450 @@
+//! 将最终 AST 语句序列化为目标 Lua 的 Doc 片段。
+//!
+//! 消费稳定语句、Naming 和语法许可，保留已有声明与绑定身份。
+
+use crate::ast::pretty::is_default_numeric_for_step_for_target;
+use crate::ast::{
+    AstAssign, AstBlock, AstCallStmt, AstFeature, AstFunctionDecl, AstGenericFor, AstGlobalDecl,
+    AstIf, AstLabel, AstLocalDecl, AstLocalFunctionDecl, AstNumericFor, AstRepeat, AstReturn,
+    AstStmt, AstWhile,
+};
+use crate::generate::doc::Doc;
+use crate::hir::HirProtoRef;
+
+use super::super::error::GenerateError;
+use super::syntax::format_label_name;
+use super::{Emitter, ExprSide};
+
+impl<'a> Emitter<'a> {
+    pub(super) fn emit_stmt(
+        &self,
+        stmt: &AstStmt,
+        function: HirProtoRef,
+    ) -> Result<Doc, GenerateError> {
+        match stmt {
+            AstStmt::LocalDecl(local_decl) => self.emit_local_decl(local_decl, function),
+            AstStmt::GlobalDecl(global_decl) => self.emit_global_decl(global_decl, function),
+            AstStmt::Assign(assign) => self.emit_assign(assign, function),
+            AstStmt::CallStmt(call_stmt) => self.emit_call_stmt(call_stmt, function),
+            AstStmt::Return(ret) => self.emit_return(ret, function),
+            AstStmt::If(ast_if) => self.emit_if(ast_if, function),
+            AstStmt::While(ast_while) => self.emit_while(ast_while, function),
+            AstStmt::Repeat(ast_repeat) => self.emit_repeat(ast_repeat, function),
+            AstStmt::NumericFor(numeric_for) => self.emit_numeric_for(numeric_for, function),
+            AstStmt::GenericFor(generic_for) => self.emit_generic_for(generic_for, function),
+            AstStmt::Break => Ok(Doc::text("break")),
+            AstStmt::Continue => {
+                if !self.allows_feature(AstFeature::ContinueStmt) {
+                    return Err(GenerateError::UnsupportedFeature {
+                        dialect: self.target.version,
+                        feature: "continue",
+                    });
+                }
+                Ok(Doc::text("continue"))
+            }
+            AstStmt::Goto(ast_goto) => {
+                if !self.allows_feature(AstFeature::GotoLabel) {
+                    return Err(GenerateError::UnsupportedFeature {
+                        dialect: self.target.version,
+                        feature: "goto",
+                    });
+                }
+                Ok(Doc::text(format!(
+                    "goto {}",
+                    format_label_name(ast_goto.target)
+                )))
+            }
+            AstStmt::Label(label) => self.emit_label(label),
+            AstStmt::DoBlock(block) => self.emit_do_block(block, function),
+            AstStmt::FunctionDecl(function_decl) => {
+                self.emit_function_decl(function_decl, function)
+            }
+            AstStmt::LocalFunctionDecl(local_function_decl) => {
+                self.emit_local_function_decl(local_function_decl, function)
+            }
+            AstStmt::Error(message) => Ok(emit_error_comment(message)),
+        }
+    }
+
+    fn emit_local_decl(
+        &self,
+        local_decl: &AstLocalDecl,
+        function: HirProtoRef,
+    ) -> Result<Doc, GenerateError> {
+        let bindings = local_decl
+            .bindings
+            .iter()
+            .map(|binding| {
+                let name = self.names.resolve_binding_ref(function, binding)?;
+                let mut type_annotation = None;
+
+                // Infer type from naming hints or common Luau patterns
+                if let Some(hint) = self.names.get_hint(function, binding) {
+                    type_annotation = match hint.text.as_str() {
+                        "Players" => Some("Player"),
+                        "Workspace" => Some("Model"),
+                        "RunService" => Some("RunService"),
+                        "TweenService" => Some("TweenService"),
+                        "HttpService" => Some("HttpService"),
+                        "UserInputService" => Some("UserInputService"),
+                        "ReplicatedStorage" => Some("ReplicatedStorage"),
+                        "TweenInfo" => Some("TweenInfo"),
+                        "Vector3" => Some("Vector3"),
+                        "CFrame" => Some("CFrame"),
+                        "Color3" => Some("Color3"),
+                        _ => None,
+                    };
+                }
+
+                let name_doc = Doc::text(name);
+                let type_doc = type_annotation.map(|t| Doc::concat([Doc::text(": "), Doc::text(t)]));
+
+                Ok(Doc::concat([name_doc, type_doc.unwrap_or(Doc::text(""))]))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut parts = vec![Doc::text("local "), Doc::join(bindings, Doc::text(", "))];
+        if !local_decl.values.is_empty() {
+            parts.push(Doc::text(" = "));
+            parts.push(self.emit_value_list(&local_decl.values, function)?);
+        }
+        Ok(Doc::concat(parts))
+    }
+
+    fn emit_global_decl(
+        &self,
+        global_decl: &AstGlobalDecl,
+        function: HirProtoRef,
+    ) -> Result<Doc, GenerateError> {
+        // Generate 只序列化 AST 上已经存在的 global decl，不替前层补猜缺失声明。
+        if !self.allows_feature(AstFeature::GlobalDecl) {
+            return Err(GenerateError::UnsupportedFeature {
+                dialect: self.target.version,
+                feature: "global",
+            });
+        }
+
+        let attr = super::syntax::common_global_attr(global_decl.bindings.as_slice()).ok_or(
+            GenerateError::MixedGlobalAttrs {
+                function: function.index(),
+            },
+        )?;
+        if matches!(attr, crate::ast::AstGlobalAttr::Const)
+            && !self.allows_feature(AstFeature::GlobalConst)
+        {
+            return Err(GenerateError::UnsupportedFeature {
+                dialect: self.target.version,
+                feature: "global<const>",
+            });
+        }
+
+        let keyword = match attr {
+            crate::ast::AstGlobalAttr::None => "global",
+            crate::ast::AstGlobalAttr::Const => "global<const>",
+        };
+        let bindings = global_decl
+            .bindings
+            .iter()
+            .map(Self::emit_global_binding_target)
+            .collect::<Vec<_>>();
+        let mut parts = vec![
+            Doc::text(keyword),
+            Doc::text(" "),
+            Doc::join(bindings, Doc::text(", ")),
+        ];
+        if !global_decl.values.is_empty() {
+            parts.push(Doc::text(" = "));
+            parts.push(self.emit_value_list(&global_decl.values, function)?);
+        }
+        Ok(Doc::concat(parts))
+    }
+
+    fn emit_assign(&self, assign: &AstAssign, function: HirProtoRef) -> Result<Doc, GenerateError> {
+        if assign.luau_compound_global {
+            if self.target.version != crate::ast::DecompileDialect::Luau {
+                return Err(GenerateError::UnsupportedFeature {
+                    dialect: self.target.version,
+                    feature: "compound assignment",
+                });
+            }
+            let binary = assign
+                .compound_global_binary()
+                .ok_or(GenerateError::UnprovenCompoundAssignment)?;
+            use crate::ast::AstBinaryOpKind;
+            let operator = match binary.op {
+                AstBinaryOpKind::Add => " += ",
+                AstBinaryOpKind::Sub => " -= ",
+                AstBinaryOpKind::Mul => " *= ",
+                AstBinaryOpKind::Div => " /= ",
+                AstBinaryOpKind::Mod => " %= ",
+                AstBinaryOpKind::Pow => " ^= ",
+                _ => return Err(GenerateError::UnprovenCompoundAssignment),
+            };
+            return Ok(Doc::concat([
+                self.emit_lvalue(&assign.targets[0], function)?,
+                Doc::text(operator),
+                self.emit_expr(&binary.rhs, function, 0, ExprSide::Standalone)?,
+            ]));
+        }
+        let targets = assign
+            .targets
+            .iter()
+            .map(|target| self.emit_lvalue(target, function))
+            .collect::<Result<Vec<_>, _>>()?;
+        let values = self.emit_value_list(&assign.values, function)?;
+        Ok(Doc::concat([
+            Doc::join(targets, Doc::text(", ")),
+            Doc::text(" = "),
+            values,
+        ]))
+    }
+
+    fn emit_call_stmt(
+        &self,
+        call_stmt: &AstCallStmt,
+        function: HirProtoRef,
+    ) -> Result<Doc, GenerateError> {
+        self.emit_call_kind(&call_stmt.call, function)
+    }
+
+    fn emit_return(&self, ret: &AstReturn, function: HirProtoRef) -> Result<Doc, GenerateError> {
+        if ret.values.is_empty() {
+            return Ok(Doc::text("return"));
+        }
+        Ok(Doc::concat([
+            Doc::text("return "),
+            self.emit_value_list(&ret.values, function)?,
+        ]))
+    }
+
+    fn emit_if(&self, ast_if: &AstIf, function: HirProtoRef) -> Result<Doc, GenerateError> {
+        let cond = self.emit_expr(&ast_if.cond, function, 0, ExprSide::Standalone)?;
+        let then_body = self.emit_block(&ast_if.then_block, function)?;
+        let mut parts = vec![
+            Doc::text("if "),
+            cond,
+            Doc::text(" then"),
+            self.emit_indented_body(&ast_if.then_block, then_body),
+        ];
+        self.emit_if_else_chain(ast_if.else_block.as_ref(), function, &mut parts)?;
+        parts.push(Doc::line());
+        parts.push(Doc::text("end"));
+        Ok(Doc::concat(parts))
+    }
+
+    fn emit_if_else_chain(
+        &self,
+        else_block: Option<&AstBlock>,
+        function: HirProtoRef,
+        parts: &mut Vec<Doc>,
+    ) -> Result<(), GenerateError> {
+        let Some(else_block) = else_block else {
+            return Ok(());
+        };
+
+        if let [AstStmt::If(else_if)] = else_block.stmts.as_slice() {
+            let cond = self.emit_expr(&else_if.cond, function, 0, ExprSide::Standalone)?;
+            let then_body = self.emit_block(&else_if.then_block, function)?;
+            parts.push(Doc::line());
+            parts.push(Doc::text("elseif "));
+            parts.push(cond);
+            parts.push(Doc::text(" then"));
+            parts.push(self.emit_indented_body(&else_if.then_block, then_body));
+            return self.emit_if_else_chain(else_if.else_block.as_ref(), function, parts);
+        }
+
+        parts.push(Doc::line());
+        parts.push(Doc::text("else"));
+        parts.push(self.emit_indented_body(else_block, self.emit_block(else_block, function)?));
+        Ok(())
+    }
+
+    fn emit_while(
+        &self,
+        ast_while: &AstWhile,
+        function: HirProtoRef,
+    ) -> Result<Doc, GenerateError> {
+        let cond = self.emit_expr(&ast_while.cond, function, 0, ExprSide::Standalone)?;
+        let body = self.emit_block(&ast_while.body, function)?;
+        Ok(self.emit_block_stmt(
+            Doc::concat([Doc::text("while "), cond, Doc::text(" do")]),
+            &ast_while.body,
+            body,
+        ))
+    }
+
+    fn emit_repeat(
+        &self,
+        ast_repeat: &AstRepeat,
+        function: HirProtoRef,
+    ) -> Result<Doc, GenerateError> {
+        let body = self.emit_block(&ast_repeat.body, function)?;
+        let cond = self.emit_expr(&ast_repeat.cond, function, 0, ExprSide::Standalone)?;
+        let mut parts = vec![
+            Doc::text("repeat"),
+            self.emit_indented_body(&ast_repeat.body, body),
+        ];
+        parts.push(Doc::line());
+        parts.push(Doc::text("until "));
+        parts.push(cond);
+        Ok(Doc::concat(parts))
+    }
+
+    fn emit_numeric_for(
+        &self,
+        numeric_for: &AstNumericFor,
+        function: HirProtoRef,
+    ) -> Result<Doc, GenerateError> {
+        let binding = self
+            .names
+            .resolve_binding_ref(function, &numeric_for.binding)?;
+        let start = self.emit_expr(&numeric_for.start, function, 0, ExprSide::Standalone)?;
+        let limit = self.emit_expr(&numeric_for.limit, function, 0, ExprSide::Standalone)?;
+        let mut header_parts = vec![
+            Doc::text("for "),
+            Doc::text(binding),
+            Doc::text(" = "),
+            start,
+            Doc::text(", "),
+            limit,
+        ];
+        if !is_default_numeric_for_step_for_target(&numeric_for.step, self.target.version) {
+            header_parts.push(Doc::text(", "));
+            header_parts.push(self.emit_expr(
+                &numeric_for.step,
+                function,
+                0,
+                ExprSide::Standalone,
+            )?);
+        }
+        header_parts.push(Doc::text(" do"));
+        let header = Doc::concat(header_parts);
+        let body = self.emit_block(&numeric_for.body, function)?;
+        Ok(self.emit_block_stmt(header, &numeric_for.body, body))
+    }
+
+    fn emit_generic_for(
+        &self,
+        generic_for: &AstGenericFor,
+        function: HirProtoRef,
+    ) -> Result<Doc, GenerateError> {
+        let bindings = generic_for
+            .bindings
+            .iter()
+            .map(|binding| {
+                self.names
+                    .resolve_binding_ref(function, binding)
+                    .map(Doc::text)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let header = Doc::concat([
+            Doc::text("for "),
+            Doc::join(bindings, Doc::text(", ")),
+            Doc::text(" in "),
+            self.emit_value_list(&generic_for.iterator, function)?,
+            Doc::text(" do"),
+        ]);
+        let body = self.emit_block(&generic_for.body, function)?;
+        Ok(self.emit_block_stmt(header, &generic_for.body, body))
+    }
+
+    fn emit_label(&self, label: &AstLabel) -> Result<Doc, GenerateError> {
+        if !self.allows_feature(AstFeature::GotoLabel) {
+            return Err(GenerateError::UnsupportedFeature {
+                dialect: self.target.version,
+                feature: "label",
+            });
+        }
+        Ok(Doc::text(format!("::{}::", format_label_name(label.id))))
+    }
+
+    fn emit_do_block(&self, block: &AstBlock, function: HirProtoRef) -> Result<Doc, GenerateError> {
+        let body = self.emit_block(block, function)?;
+        Ok(self.emit_block_stmt(Doc::text("do"), block, body))
+    }
+
+    fn emit_function_decl(
+        &self,
+        function_decl: &AstFunctionDecl,
+        function: HirProtoRef,
+    ) -> Result<Doc, GenerateError> {
+        let target = self.emit_function_name(&function_decl.target, function)?;
+        let header = Doc::concat([
+            Doc::text(if function_decl.global_declaration {
+                "global function "
+            } else {
+                "function "
+            }),
+            target,
+        ]);
+        let params = self.emit_decl_param_list(
+            &function_decl.func,
+            matches!(
+                function_decl.target,
+                crate::ast::AstFunctionName::Method(_, _)
+            ),
+        )?;
+        self.emit_function_with_header_and_params(&function_decl.func, header, params)
+    }
+
+    fn emit_local_function_decl(
+        &self,
+        local_function_decl: &AstLocalFunctionDecl,
+        function: HirProtoRef,
+    ) -> Result<Doc, GenerateError> {
+        let name = self
+            .names
+            .resolve_binding_ref(function, &local_function_decl.name)?;
+        let header = Doc::concat([Doc::text("local function "), Doc::text(name)]);
+        self.emit_function_with_header(&local_function_decl.func, header)
+    }
+
+    fn emit_value_list(
+        &self,
+        values: &[crate::ast::AstExpr],
+        function: HirProtoRef,
+    ) -> Result<Doc, GenerateError> {
+        let docs = values
+            .iter()
+            .map(|expr| self.emit_expr(expr, function, 0, ExprSide::Standalone))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Doc::join(docs, Doc::text(", ")))
+    }
+
+    pub(super) fn emit_parenthesized_list(&self, items: Vec<Doc>) -> Doc {
+        Doc::concat([
+            Doc::text("("),
+            Doc::join(items, Doc::text(", ")),
+            Doc::text(")"),
+        ])
+    }
+
+    fn emit_block_stmt(&self, header: Doc, block: &AstBlock, body: Doc) -> Doc {
+        Doc::concat([
+            header,
+            self.emit_indented_body(block, body),
+            Doc::line(),
+            Doc::text("end"),
+        ])
+    }
+
+    pub(super) fn emit_indented_body(&self, block: &AstBlock, body: Doc) -> Doc {
+        if block.stmts.is_empty() {
+            Doc::line()
+        } else {
+            self.emit_indented_body_nonempty(body)
+        }
+    }
+
+    fn emit_indented_body_nonempty(&self, body: Doc) -> Doc {
+        Doc::indent(Doc::concat([Doc::line(), body]))
+    }
+}
+
+fn emit_error_comment(message: &str) -> Doc {
+    let mut lines = message.lines();
+    let first = lines.next().unwrap_or_default();
+    let comments = std::iter::once(Doc::text(format!("-- [unluac error] {first}")))
+        .chain(lines.map(|line| Doc::text(format!("-- {line}"))))
+        .collect::<Vec<_>>();
+    Doc::join(comments, Doc::line())
+}

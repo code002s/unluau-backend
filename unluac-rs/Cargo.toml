@@ -1,0 +1,58 @@
+[package]
+name = "unluac"
+version = "1.4.4"
+edition = "2024"
+description = "Multi-dialect Lua decompiler written in Rust."
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/x3zvawq/unluac-rs"
+homepage = "https://github.com/x3zvawq/unluac-rs"
+documentation = "https://docs.rs/unluac"
+rust-version = "1.94"
+keywords = ["lua", "luajit", "luau", "decompiler", "bytecode"]
+exclude = [
+    ".vscode/**",
+    "lua/**",
+    "packages/**",
+    "tests/**",
+    "xtask/**"
+]
+
+[features]
+default = ["decompile-debug", "timing-report"]
+decompile-debug = []
+timing-report = []
+
+[lints]
+workspace = true
+
+[workspace]
+members = [
+    "xtask",
+    "packages/unluac-cli",
+    "packages/unluac-test-support",
+    "packages/unluac-wasm",
+]
+resolver = "3"
+
+# 全量 case 矩阵以运行耗时为主；保留 dev 的断言与溢出检查。
+[profile.case-test]
+inherits = "dev"
+opt-level = 2
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+manual_ok_or = "deny"
+needless_borrow = "deny"
+needless_collect = "deny"
+redundant_clone = "deny"
+
+[dependencies]
+chardetng = "1.0.0"
+encoding_rs = "0.8.35"
+owo-colors = "4.2.2"
+strum = "0.27.2"
+strum_macros = "0.27.2"
+thiserror = "2.0.12"

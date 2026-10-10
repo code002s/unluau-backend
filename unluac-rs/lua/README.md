@@ -1,0 +1,53 @@
+# Lua Toolchains
+
+This directory stores vendored Lua-family toolchains used by the repository bootstrap.
+
+Pinned sources:
+
+- `lua5.1`: Lua 5.1.5
+- `lua5.2`: Lua 5.2.4
+- `lua5.3`: Lua 5.3.6
+- `lua5.4`: Lua 5.4.8
+- `lua5.5`: Lua 5.5.0
+- `luajit`: LuaJIT `v2.1` pinned to commit `659a61693aa3b87661864ad0f12eee14c865cd7f`
+- `luau`: Luau `0.713`
+
+Generated layout:
+
+- `lua/sources/<toolchain>`: extracted or cloned source tree
+- `lua/build/<toolchain>`: built executables
+
+Commands:
+
+```bash
+cargo lua list
+cargo lua init
+cargo lua build lua5.1
+cargo lua build luajit
+cargo lua build luau
+cargo lua fetch all
+cargo lua clean lua5.1
+```
+
+Outputs:
+
+- stock Lua builds produce `lua` and `luac`
+- `luajit` produces `luajit`, its bundled `jit/` modules, and a compatibility wrapper `luac` that runs `luajit -b`
+- `luau` produces `luau`, `luau-analyze`, `luau-compile`, `luau-bytecode`, and
+  `luau-bytecode-runner`; the runner executes original and regenerated binary chunks for case validation
+  and explicit VM contracts, including the pinned CLI's `collectgarbage` entry point. It accepts an
+  optional observer chunk that receives the original loaded function as its argument.
+- Windows appends `.exe` to each executable name; Unix keeps the names extensionless
+
+Host prerequisites:
+
+- `curl`
+- `tar`
+- `git`
+- Unix: `make` and a working C/C++ toolchain
+- Windows: Visual Studio C++ Build Tools (Desktop development with C++ and a Windows SDK), plus CMake and Ninja
+
+Windows bootstrap is supported. `cargo lua init` discovers the installed Visual Studio toolchain through
+`vswhere` (or uses the active Visual Studio developer environment), builds stock Lua with MSVC, LuaJIT
+with its bundled `msvcbuild.bat`, and Luau with CMake/Ninja. The repository's CLI and test commands use
+the host's native executable suffix when resolving these generated tools.

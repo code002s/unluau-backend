@@ -1,0 +1,288 @@
+//! 各 dump 层共用的 proto 聚焦与限深展开计划。
+//!
+//! 消费 proto 树和调试选项，发布可见节点及省略摘要，不转换业务 proto 身份。
+
+use std::collections::BTreeSet;
+use std::fmt::Write as _;
+
+use super::{DebugFilters, ProtoDepth};
+
+/// 调试树一次前序快照的身份；value 借用所属层的对象，不代替业务 proto id。
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ProtoTreeEntry<T> {
+    pub(crate) id: usize,
+    pub(crate) parent: Option<usize>,
+    pub(crate) depth: usize,
+    pub(crate) value: T,
+}
+
+/// children 按源码顺序提供；显式栈保证深 Luau proto 不消耗递归调用栈。
+pub(crate) fn collect_proto_tree<T: Copy, I: DoubleEndedIterator<Item = T>>(
+    root: T,
+    children: impl Fn(T) -> I,
+) -> Vec<ProtoTreeEntry<T>> {
+    let mut entries = Vec::new();
+    let mut pending = vec![(root, None, 0usize)];
+    while let Some((value, parent, depth)) = pending.pop() {
+        let id = entries.len();
+        entries.push(ProtoTreeEntry {
+            id,
+            parent,
+            depth,
+            value,
+        });
+        pending.extend(
+            children(value)
+                .rev()
+                .map(|child| (child, Some(id), depth + 1)),
+        );
+    }
+    entries
+}
+
+pub(crate) fn plan_proto_focus<T>(
+    entries: &[ProtoTreeEntry<T>],
+    filters: &DebugFilters,
+) -> FocusPlan {
+    let parents = entries.iter().map(|entry| entry.parent).collect::<Vec<_>>();
+    compute_focus_plan(&build_proto_nodes(&parents), &filters.as_focus_request())
+}
+
+impl ProtoDepth {
+    /// 判断给定的相对深度是否仍在展开范围内。
+    ///
+    /// `relative == 0` 表示焦点自身，一定在范围内。
+    pub(crate) fn includes(self, relative: usize) -> bool {
+        match self {
+            Self::Fixed(limit) => relative <= limit,
+            Self::All => true,
+        }
+    }
+}
+
+/// proto 树节点的轻量描述，供 `compute_focus_plan` 消费。
+///
+/// 每个 `ProtoNode` 在 `nodes` 切片里的下标就是它的稳定 id（DFS 序），
+/// 树形产物消费共享前序快照；扁平产物由所属层投影到这个形态。
+#[derive(Debug, Clone)]
+pub(crate) struct ProtoNode {
+    pub(crate) parent: Option<usize>,
+    pub(crate) children: Vec<usize>,
+}
+
+/// 从 DFS 序的 `(id, parent)` 对列表反推 `Vec<ProtoNode>`。
+///
+/// 各层 dump 之前已经用 DFS 把 proto 展平成线性数组，只是不一定保存了
+/// `parent`。这个 helper 允许层自己决定是否跟踪 parent，再统一交由 focus 计算。
+/// 要求 `id` 等于 `parents.len() - 1 - idx_in_reverse`，也就是 `(id, parent)`
+/// 按 DFS 顺序 push 进来即可。
+pub(crate) fn build_proto_nodes(parents: &[Option<usize>]) -> Vec<ProtoNode> {
+    let mut nodes: Vec<ProtoNode> = (0..parents.len())
+        .map(|_| ProtoNode {
+            parent: None,
+            children: Vec::new(),
+        })
+        .collect();
+    for (id, parent) in parents.iter().enumerate() {
+        nodes[id].parent = *parent;
+        if let Some(parent) = parent
+            && *parent < nodes.len()
+        {
+            nodes[*parent].children.push(id);
+        }
+    }
+    nodes
+}
+
+/// `compute_focus_plan` 的结果。
+///
+/// - `focus`：最终选中的聚焦 proto id。`None` 表示用户指定的 id 不存在。
+/// - `ancestors`：从根到焦点父节点（含根，不含焦点）的路径，供 breadcrumb 使用。
+/// - `visible`：需要完整渲染的 proto id 集合（包含焦点本身）。
+/// - `elided_at`：需要以 summary 行占位的 proto id，按 DFS 序排列。
+#[derive(Debug, Clone, Default)]
+pub(crate) struct FocusPlan {
+    pub(crate) focus: Option<usize>,
+    pub(crate) ancestors: Vec<usize>,
+    pub(crate) visible: BTreeSet<usize>,
+    pub(crate) elided_at: Vec<usize>,
+}
+
+impl FocusPlan {
+    pub(crate) fn is_visible(&self, id: usize) -> bool {
+        self.visible.contains(&id)
+    }
+
+    pub(crate) fn is_elided(&self, id: usize) -> bool {
+        self.elided_at.binary_search(&id).is_ok()
+    }
+}
+
+/// 基于一颗 proto 树和聚焦参数计算可见/省略集合。
+///
+/// 当 `focus` 指向的 id 不存在时，返回空 plan：所有 proto 都被隐藏，
+/// 调用方应显示类似 `<no proto matched filters>` 的提示。
+///
+/// 对链 0 -> 1 -> 2：默认焦点、深度 0 得 visible={0}, elided_at=[1]；
+/// 焦点 1、深度 0 得 visible={1}, elided_at=[2], ancestors=[0]；
+/// 深度 All 则从所选焦点完整展开。
+pub(crate) fn compute_focus_plan(nodes: &[ProtoNode], filters: &FocusRequest) -> FocusPlan {
+    if nodes.is_empty() {
+        return FocusPlan::default();
+    }
+
+    // 默认焦点 = 0（入口 proto）。这和「默认只看根 proto」的约定一致。
+    let focus_id = filters.proto.unwrap_or(0);
+    if focus_id >= nodes.len() {
+        return FocusPlan::default();
+    }
+
+    // 从焦点向上回溯祖先，便于渲染 breadcrumb。
+    let mut ancestors = Vec::new();
+    let mut cursor = nodes[focus_id].parent;
+    while let Some(parent) = cursor {
+        ancestors.push(parent);
+        cursor = nodes[parent].parent;
+    }
+    ancestors.reverse();
+
+    // 从焦点向下按相对深度 DFS 扩展可见集合，
+    // 同时把被裁掉的直接子节点加入 `elided_at`，保证在 DFS 原序中出现。
+    let mut visible = BTreeSet::new();
+    let mut elided_at = Vec::new();
+    walk_below(
+        nodes,
+        focus_id,
+        0,
+        filters.depth,
+        &mut visible,
+        &mut elided_at,
+    );
+
+    FocusPlan {
+        focus: Some(focus_id),
+        ancestors,
+        visible,
+        elided_at,
+    }
+}
+
+fn walk_below(
+    nodes: &[ProtoNode],
+    node_id: usize,
+    relative_depth: usize,
+    depth: ProtoDepth,
+    visible: &mut BTreeSet<usize>,
+    elided_at: &mut Vec<usize>,
+) {
+    if !depth.includes(relative_depth) {
+        elided_at.push(node_id);
+        return;
+    }
+    visible.insert(node_id);
+    for child in &nodes[node_id].children {
+        walk_below(nodes, *child, relative_depth + 1, depth, visible, elided_at);
+    }
+}
+
+/// 聚焦参数的最小输入。`DebugFilters` 与 pass dump config 都能投射到这个结构。
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Default)]
+pub(crate) struct FocusRequest {
+    pub(crate) proto: Option<usize>,
+    pub(crate) depth: ProtoDepth,
+}
+
+/// 每个 dump 层需要打印 elided 占位行时，把可获得的辨识信息放进这个 struct，
+/// 再用 `format_proto_summary_row` 渲染成稳定格式的单行文本。
+///
+/// 不是每一层都能填齐所有字段：
+/// - parser / transformer / structure 内部片段通常只有
+///   `lines / instrs / children / first`（`name=-`）。
+/// - HIR / AST / generate 可额外填 `name`。
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ProtoSummaryRow {
+    pub(crate) id: usize,
+    pub(crate) name: Option<String>,
+    pub(crate) first: Option<String>,
+    pub(crate) lines: Option<(u32, u32)>,
+    pub(crate) instrs: Option<usize>,
+    pub(crate) children: Option<usize>,
+}
+
+/// 渲染单个 elided 占位行。
+///
+/// 约定格式（方便肉眼扫描）：
+///   `proto#<id> <elided> name=<n> lines=<A..B> first=<"..."> instrs=<K> children=<C>`
+///
+/// 缺失的字段统一用 `-` 占位；`first` 会做长度截断避免一行爆炸。
+pub(crate) fn format_proto_summary_row(row: &ProtoSummaryRow) -> String {
+    let mut output = String::new();
+    let _ = write!(output, "proto#{} <elided>", row.id);
+
+    let name = row.name.as_deref().unwrap_or("-");
+    let _ = write!(output, " name={name}");
+
+    match row.lines {
+        Some((start, end)) => {
+            let _ = write!(output, " lines={start}..{end}");
+        }
+        None => {
+            let _ = write!(output, " lines=-");
+        }
+    }
+
+    let first_rendered = row
+        .first
+        .as_deref()
+        .map(truncate_first)
+        .unwrap_or_else(|| "-".to_owned());
+    let _ = write!(output, " first={first_rendered}");
+
+    if let Some(instrs) = row.instrs {
+        let _ = write!(output, " instrs={instrs}");
+    }
+    if let Some(children) = row.children {
+        let _ = write!(output, " children={children}");
+    }
+
+    output
+}
+
+const FIRST_SNIPPET_MAX_CHARS: usize = 80;
+
+fn truncate_first(raw: &str) -> String {
+    let mut snippet = String::new();
+    for (count, ch) in raw.chars().enumerate() {
+        if ch == '\n' || ch == '\r' {
+            break;
+        }
+        if count >= FIRST_SNIPPET_MAX_CHARS {
+            snippet.push('…');
+            break;
+        }
+        snippet.push(ch);
+    }
+    format!("\"{snippet}\"")
+}
+
+/// 渲染 breadcrumb 行（`focus proto#<id> path=proto#A -> proto#B -> ...`）。
+///
+/// 当焦点就是入口 proto 且无祖先时，返回 `None`，让调用方自己决定是否跳过这行。
+pub(crate) fn format_breadcrumb(plan: &FocusPlan) -> Option<String> {
+    let focus = plan.focus?;
+    if plan.ancestors.is_empty() {
+        return None;
+    }
+
+    let mut output = format!("focus proto#{focus} path=");
+    let mut first = true;
+    for ancestor in &plan.ancestors {
+        if !first {
+            output.push_str(" -> ");
+        }
+        first = false;
+        let _ = write!(output, "proto#{ancestor}");
+    }
+    let _ = write!(output, " -> proto#{focus}");
+    Some(output)
+}

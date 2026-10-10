@@ -1,0 +1,223 @@
+{
+  "app": {
+    "title": "unluac-web",
+    "subtitle": "Lua 反編譯器"
+  },
+  "header": {
+    "settings": "設定",
+    "theme": {
+      "light": "淺色模式",
+      "dark": "深色模式",
+      "system": "跟隨系統"
+    },
+    "language": "語言"
+  },
+  "filePanel": {
+    "title": "檔案列表",
+    "dropHint": "拖曳位元組碼檔案到此處",
+    "openFile": "開啟檔案",
+    "openFolder": "開啟資料夾",
+    "empty": "暫無檔案",
+    "status": {
+      "pending": "待處理",
+      "processing": "處理中",
+      "success": "成功",
+      "error": "失敗",
+      "skipped": "已跳過（原始檔案）"
+    },
+    "noFiles": "沒有匹配的檔案",
+    "globDialog": {
+      "title": "輸入檔案匹配模式（glob）",
+      "cancel": "取消"
+    },
+    "batchWarning": "選取了 {count} 個檔案，批次反編譯可能需要一些時間，是否繼續？",
+    "progress": "已完成 {done}/{total}",
+    "batchStats": "{success} 成功，{error} 失敗",
+    "dismissStats": "關閉",
+    "contextMenu": {
+      "recompile": "重新反編譯",
+      "compare": "比較…",
+      "download": "下載結果",
+      "remove": "移除"
+    },
+    "folderContextMenu": {
+      "removeFolder": "移除目錄"
+    },
+    "sourceTag": "原始碼",
+    "fileDialect": "修改此檔案的 Lua 方言"
+  },
+  "codeView": {
+    "placeholder": "選擇一個檔案開始反編譯",
+    "copy": "複製",
+    "copied": "已複製",
+    "download": "下載",
+    "downloadAll": "下載全部",
+    "fontSize": "字型大小",
+    "error": "反編譯失敗",
+    "modified": "已修改",
+    "modifiedHint": "目前內容已被手動編輯，與原始反編譯結果不同",
+    "restore": "恢復原始結果",
+    "restoreConfirm": "確定要放棄編輯並恢復為原始反編譯結果嗎？"
+  },
+  "tabs": {
+    "code": "原始碼",
+    "protos": "Proto",
+    "cfg": "CFG",
+    "diff": "比較",
+    "contextMenu": {
+      "close": "關閉",
+      "closeOthers": "關閉其他",
+      "closeRight": "關閉右側",
+      "closeAll": "關閉全部"
+    }
+  },
+  "analysis": {
+    "loading": "正在分析…",
+    "noFile": "選擇一個檔案以檢視分析結果",
+    "noData": "暫無結構化分析資料",
+    "noDataHint": "需要使用包含 decompileRich 匯出的 WASM 模組",
+    "sourceFile": "該檔案是原始檔案，無需反編譯",
+    "error": "分析出錯",
+    "selectProto": "選擇一個 Proto",
+    "protoGraph": {
+      "root": "根 Proto",
+      "params": "參數",
+      "lines": "行",
+      "vararg": "變長參數",
+      "upvalues": "上值",
+      "constants": "常數",
+      "instructions": "指令"
+    },
+    "constants": {
+      "title": "常數",
+      "empty": "暫無常數",
+      "type": "類型",
+      "value": "值"
+    },
+    "cfgViewer": {
+      "proto": "Proto",
+      "entry": "入口",
+      "exit": "出口",
+      "blocks": "基本區塊",
+      "edges": "邊",
+      "bytecode": "位元組碼",
+      "focusHint": "已聚焦 {block}（{hops} 跳鄰域）。雙擊其他區塊可切換聚焦。",
+      "clearFocus": "顯示全部"
+    }
+  },
+  "settings": {
+    "title": "設定",
+    "dialect": "Lua 方言",
+    "tabs": {
+      "general": "通用",
+      "advanced": "高級",
+      "parse": "解析",
+      "readability": "可讀性",
+      "naming": "命名",
+      "generate": "產生",
+      "about": "關於"
+    },
+    "parse": {
+      "title": "解析選項",
+      "mode": "解析模式",
+      "stringEncoding": "字串編碼",
+      "stringDecodeMode": "字串解碼模式",
+      "ignoreDebug": "忽略除錯資訊"
+    },
+    "readability": {
+      "title": "可讀性選項",
+      "returnInlineMaxComplexity": "return 內聯最大複雜度",
+      "indexInlineMaxComplexity": "索引內聯最大複雜度",
+      "argsInlineMaxComplexity": "參數內聯最大複雜度",
+      "accessBaseInlineMaxComplexity": "存取基底表內聯最大複雜度"
+    },
+    "naming": {
+      "title": "命名選項",
+      "mode": "命名模式",
+      "debugLikeIncludeFunction": "debug-like 包含函式名"
+    },
+    "generate": {
+      "title": "產生選項",
+      "mode": "產生模式",
+      "indentWidth": "縮排寬度",
+      "maxLineLength": "最大行寬",
+      "quoteStyle": "引號風格",
+      "tableStyle": "表建構器風格",
+      "comment": "產生註解"
+    },
+    "tips": {
+      "dialect": "只影響新匯入的檔案。點擊檔案的版本標籤可單獨修改方言。",
+      "generateMode": "產生器錯誤處理策略。strict: 遇到不支援語法或錯誤時停止；permissive: 盡可能輸出。CLI: --generate-mode / -g",
+      "parseMode": "解析器嚴格程度。strict: 嚴格校驗；permissive: 容忍不規範的位元組碼。CLI: --parse-mode / -p",
+      "stringEncoding": "字串常數的解碼編碼。CLI: --encoding / -e",
+      "stringDecodeMode": "字串解碼失敗時的處理策略。strict: 報錯；lossy: 替換為佔位符。CLI: --decode-mode / -m",
+      "ignoreDebug": "仍解析並驗證 debug 區段，但不讓其參與還原，也不產生相關註解。CLI: --ignore-debug",
+      "returnInlineMaxComplexity": "return 陳述式中允許的最大內聯運算式複雜度。CLI: --return-inline-max-complexity",
+      "indexInlineMaxComplexity": "表索引中允許的最大內聯運算式複雜度。CLI: --index-inline-max-complexity",
+      "argsInlineMaxComplexity": "函式呼叫參數中允許的最大內聯運算式複雜度。CLI: --args-inline-max-complexity",
+      "accessBaseInlineMaxComplexity": "表存取基底表中允許的最大內聯運算式複雜度。CLI: --access-base-inline-max-complexity",
+      "namingMode": "沒有合法 debug 名時的後備命名策略；所有模式都會優先採用 debug 名。CLI: --naming-mode / -n",
+      "debugLikeIncludeFunction": "debug-like 命名模式下，是否包含函式形狀的名稱。CLI: --debug-like-include-function",
+      "indentWidth": "產生程式碼的縮排寬度（空格數）。CLI: --indent-width",
+      "maxLineLength": "產生程式碼的首選最大行寬。CLI: --max-line-length",
+      "quoteStyle": "字串引號風格。prefer-double: 偏好雙引號；prefer-single: 偏好單引號；min-escape: 選擇最少跳脫的。CLI: --quote-style",
+      "tableStyle": "表建構器排版風格。compact: 緊湊；balanced: 均衡；expanded: 展開。CLI: --table-style",
+      "comment": "是否在產生的程式碼中輸出註解和中繼資訊。CLI: --comment"
+    },
+    "share": {
+      "button": "複製分享連結",
+      "copied": "連結已複製到剪貼簿",
+      "cliButton": "複製 CLI 參數",
+      "cliCopied": "CLI 參數已複製",
+      "reset": "恢復預設設定"
+    },
+    "about": {
+      "title": "關於",
+      "repo": "GitHub 倉庫",
+      "version": "版本",
+      "summary": "直接在瀏覽器裡分析與反編譯 Lua 位元組碼",
+      "description": "unluac-web 基於 unluac-rs 與 WebAssembly 構建，適合快速查看反編譯結果、比對輸出，並在需要時深入 Proto / CFG 視圖。",
+      "metaTitle": "項目資訊",
+      "highlights": {
+        "multiDialect": {
+          "title": "支援多版本多方言",
+          "description": "涵蓋 Lua 5.1–5.5、LuaJIT 與 Luau，可依目標方言切換解析與生成策略。"
+        },
+        "localFirst": {
+          "title": "完全本地執行",
+          "description": "所有反編譯與分析都在目前瀏覽器內完成，不需將位元組碼上傳到伺服器。"
+        },
+        "tooling": {
+          "title": "不只是輸出原始碼",
+          "description": "除了原始碼結果，也能批次處理、比對輸出，並查看 Proto / CFG 等結構化分析資訊。"
+        }
+      }
+    },
+    "importDialect": "新檔案預設方言"
+  },
+  "diff": {
+    "left": "左側",
+    "right": "右側",
+    "selectFile": "選擇檔案",
+    "hint": "選擇兩個已反編譯的檔案進行比較"
+  },
+  "workspace": {
+    "local": "本機執行",
+    "files": "工作區",
+    "searchFiles": "搜尋檔案…",
+    "fileHint": "開啟檔案或資料夾即可開始，每個檔案獨立保留 Lua 版本。",
+    "history": "檔案歷史儲存在目前瀏覽器",
+    "fileActions": "檔案操作",
+    "headline": "從 Lua 位元組碼，",
+    "headlineAccent": "讀回程式的結構。",
+    "description": "還原原始碼，探索程式結構，讓編譯後的 Lua 重新可讀。一切都可以在瀏覽器中完成。",
+    "importHint": "不限副檔名，支援單一檔案與整個資料夾。",
+    "privacy": "檔案在你的裝置上處理，無需上傳伺服器。",
+    "multiDialect": "多方言支援",
+    "explore": "深入程式碼",
+    "exploreHint": "查看函式、常數與控制流程。",
+    "analysis": "結構分析",
+    "wrapLines": "自動換行",
+    "settingsHint": "設定自動生效，每個檔案獨立保留自己的 Lua 方言。"
+  }
+}

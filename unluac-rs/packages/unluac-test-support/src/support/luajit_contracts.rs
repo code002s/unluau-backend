@@ -1,0 +1,603 @@
+//! 校验 LuaJIT 内建与方法调用协议及特殊 island 合同；原始编码边界读取 RawProto，运行协议读取 LoweredProto。
+//! 例如大键方法样例先证明原 KGC 池跨过 8bit 边界，再检查归一化调用签名，不把字面量池长度当成 KGC 数量。
+
+use super::*;
+use unluac::parser::{RawChunk, RawProto};
+
+pub(super) fn assert_ignore_debug_keeps_parser_validation(
+    entry: &LuaCaseManifestEntry,
+) -> Result<(), TestFailure> {
+    let mut truncated = compile_manifest_case(entry);
+    truncated.pop().ok_or_else(|| {
+        TestFailure::new(
+            FailureKind::DecompileFailed,
+            "debug validation contract produced an empty chunk",
+            "debug validation contract produced an empty chunk",
+        )
+    })?;
+
+    for ignore_debug in [false, true] {
+        let mut options = decompile_options(entry);
+        options.parse.mode = ParseMode::Strict;
+        options.parse.ignore_debug = ignore_debug;
+        match decompile(&truncated, options) {
+            Err(DecompileError::Parse(_)) => {}
+            Err(error) => {
+                return Err(TestFailure::new(
+                    FailureKind::DecompileFailed,
+                    "truncated debug layout escaped the parser error boundary",
+                    format!("ignore_debug={ignore_debug} should fail in Parser, got: {error}"),
+                ));
+            }
+            Ok(_) => {
+                return Err(TestFailure::new(
+                    FailureKind::DecompileFailed,
+                    "truncated debug layout was accepted",
+                    format!("ignore_debug={ignore_debug} accepted a truncated debug layout"),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn assert_luajit_table_remove_contract(
+    entry: &LuaCaseManifestEntry,
+    suite_label: &str,
+) -> Result<(), TestFailure> {
+    if entry.dialect != LuaCaseDialect::Luajit {
+        return Err(luajit_builtin_contract_failure(
+            entry,
+            "table.remove contract requires the LuaJIT dialect",
+        ));
+    }
+
+    let source = repo_root().join(entry.path);
+    let artifact = suite_artifact_path(suite_label, entry, "toolchain-fixture", "luajit");
+    let raw_dump = artifact.with_extension("raw.luajit");
+    ensure_parent_dir(&raw_dump).map_err(|error| luajit_builtin_contract_failure(entry, error))?;
+    let raw_dump_arg = raw_dump.to_string_lossy().into_owned();
+    let command_output = run_lua_file_with_args(
+        "luajit",
+        &source,
+        &["--dump-table-remove", raw_dump_arg.as_str()],
+    )
+    .map_err(|error| luajit_builtin_contract_failure(entry, error))?;
+    if !command_output.success() {
+        return Err(luajit_builtin_contract_failure(
+            entry,
+            format!(
+                "official runtime failed to dump table.remove\n{}",
+                command_output.render()
+            ),
+        ));
+    }
+    let dump_bytes = fs::read(&raw_dump).map_err(|error| {
+        luajit_builtin_contract_failure(
+            entry,
+            format!("read {} failed: {error}", repo_relative_display(&raw_dump)),
+        )
+    })?;
+    write_output_file(&artifact, &dump_bytes).map_err(|error| {
+        luajit_builtin_contract_failure(
+            entry,
+            format!("write {} failed: {error}", repo_relative_display(&artifact)),
+        )
+    })?;
+
+    let mut options = decompile_options(entry);
+    options.generate.mode = GenerateMode::Permissive;
+    let result = decompile(&dump_bytes, options).map_err(|error| {
+        luajit_builtin_contract_failure(
+            entry,
+            format!(
+                "decompile {} failed: {error}",
+                repo_relative_display(&artifact)
+            ),
+        )
+    })?;
+    assert_auto_dialect(
+        "LuaJIT table.remove fixture",
+        result.state.dialect,
+        DecompileDialect::Luajit,
+        entry.path,
+    )?;
+
+    let lowered = result.state.lowered.as_ref().ok_or_else(|| {
+        luajit_builtin_contract_failure(entry, "generate stage returned no lowered chunk")
+    })?;
+    let generated = result.state.generated.as_ref().ok_or_else(|| {
+        luajit_builtin_contract_failure(entry, "generate stage returned no generated chunk")
+    })?;
+
+    let mut guards = Vec::new();
+    let mut raw_gets = Vec::new();
+    let mut raw_sets = Vec::new();
+    for instr in &lowered.main.instrs {
+        match instr {
+            LowInstr::TypeGuard(instr) => guards.push((instr.subject, instr.kind)),
+            LowInstr::GetTable(instr) if instr.kind == GetTableKind::Raw => {
+                raw_gets.push((instr.dst, instr.base, instr.key));
+            }
+            LowInstr::SetTable(instr) if instr.kind == SetTableKind::Raw => {
+                raw_sets.push((instr.base, instr.key, instr.value));
+            }
+            _ => {}
+        }
+    }
+
+    let guards_match = matches!(
+        guards.as_slice(),
+        [
+            (Reg(0), TypeGuardKind::Table),
+            (Reg(1), TypeGuardKind::Integer | TypeGuardKind::Number)
+        ]
+    );
+    let expected_raw_gets = [
+        (Reg(3), AccessBase::Reg(Reg(0)), AccessKey::Reg(Reg(2))),
+        (Reg(3), AccessBase::Reg(Reg(0)), AccessKey::Reg(Reg(1))),
+        (Reg(9), AccessBase::Reg(Reg(0)), AccessKey::Reg(Reg(7))),
+    ];
+    let expected_raw_sets = [
+        (
+            AccessBase::Reg(Reg(0)),
+            AccessKey::Reg(Reg(2)),
+            ValueOperand::Reg(Reg(4)),
+        ),
+        (
+            AccessBase::Reg(Reg(0)),
+            AccessKey::Reg(Reg(8)),
+            ValueOperand::Reg(Reg(9)),
+        ),
+        (
+            AccessBase::Reg(Reg(0)),
+            AccessKey::Reg(Reg(2)),
+            ValueOperand::Reg(Reg(4)),
+        ),
+    ];
+    if !guards_match || raw_gets != expected_raw_gets || raw_sets != expected_raw_sets {
+        let lir = lowered
+            .main
+            .instrs
+            .iter()
+            .map(format_low_instr)
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Err(luajit_builtin_contract_failure(
+            entry,
+            format!(
+                "typed LIR contract mismatch in {}\nguards={guards:?}\nraw_gets={raw_gets:?}\nraw_sets={raw_sets:?}\nlow-ir:\n{lir}",
+                repo_relative_display(&artifact)
+            ),
+        ));
+    }
+
+    const RAW_READ_DIAGNOSTIC: &str = "LuaJIT raw table read has no exact Lua source form";
+    const RAW_WRITE_DIAGNOSTIC: &str = "LuaJIT raw table write has no exact Lua source form";
+    let read_diagnostics = generated.source.matches(RAW_READ_DIAGNOSTIC).count();
+    let write_diagnostics = generated.source.matches(RAW_WRITE_DIAGNOSTIC).count();
+    if generated.kind != GeneratedChunkKind::DiagnosticPseudocode
+        || read_diagnostics != 3
+        || write_diagnostics != 3
+    {
+        return Err(luajit_builtin_contract_failure(
+            entry,
+            format!(
+                "raw access diagnostic contract mismatch in {}: kind={:?}, reads={read_diagnostics}, writes={write_diagnostics}\n{}",
+                repo_relative_display(&artifact),
+                generated.kind,
+                generated.source
+            ),
+        ));
+    }
+
+    const TYPE_GUARD_PREFIX: &str = "LuaJIT builtin ";
+    const TYPE_GUARD_LOCATION: &str = "type guard at block #";
+    const TYPE_GUARD_SPELLING: &str = "has no exact Lua source spelling;";
+    let type_guard_diagnostics = generated.source.matches(TYPE_GUARD_PREFIX).count();
+    if type_guard_diagnostics != guards.len()
+        || !generated.source.contains(TYPE_GUARD_LOCATION)
+        || !generated.source.contains(TYPE_GUARD_SPELLING)
+    {
+        return Err(luajit_builtin_contract_failure(
+            entry,
+            format!(
+                "type-guard diagnostic contract mismatch in {}: expected={}, found={type_guard_diagnostics}\n{}",
+                repo_relative_display(&artifact),
+                guards.len(),
+                generated.source
+            ),
+        ));
+    }
+
+    Ok(())
+}
+
+pub(super) fn assert_luajit_method_protocol_contract(
+    entry: &LuaCaseManifestEntry,
+    suite_label: &str,
+) -> Result<(), TestFailure> {
+    if entry.dialect != LuaCaseDialect::Luajit {
+        return Err(luajit_method_contract_failure(
+            entry,
+            "method protocol contract requires the LuaJIT dialect",
+        ));
+    }
+
+    let (raw, lowered) = lower_luajit_method_fixture(
+        entry,
+        suite_label,
+        "large-method-fixture",
+        "--dump-large-method",
+    )?;
+
+    let signatures = lowered
+        .main
+        .children
+        .iter()
+        .enumerate()
+        .map(|(index, proto)| {
+            raw.main
+                .common
+                .children
+                .get(index)
+                .and_then(|raw_proto| large_method_signature(raw_proto, proto))
+        })
+        .collect::<Vec<_>>();
+    if signatures.len() != 2
+        || !signatures.contains(&Some(LargeMethodSignature::Method))
+        || !signatures.contains(&Some(LargeMethodSignature::Dot))
+    {
+        return Err(luajit_method_contract_failure(
+            entry,
+            format!("large-key method/dot LIR signatures mismatch: {signatures:?}"),
+        ));
+    }
+    let (_, bypassed) = lower_luajit_method_fixture(
+        entry,
+        suite_label,
+        "bypassed-method-fixture",
+        "--dump-bypassed-method",
+    )?;
+    if !bypassed_method_signature(&bypassed.main) {
+        return Err(luajit_method_contract_failure(
+            entry,
+            "external entry into split setup was not kept as a normal call",
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn lower_luajit_method_fixture(
+    entry: &LuaCaseManifestEntry,
+    suite_label: &str,
+    artifact_label: &str,
+    argument: &str,
+) -> Result<(RawChunk, LoweredChunk), TestFailure> {
+    let source = repo_root().join(entry.path);
+    let artifact = suite_artifact_path(suite_label, entry, artifact_label, "luajit");
+    let raw_dump = artifact.with_extension("raw.luajit");
+    ensure_parent_dir(&raw_dump).map_err(|error| luajit_method_contract_failure(entry, error))?;
+    let raw_dump_arg = raw_dump.to_string_lossy().into_owned();
+    let command_output =
+        run_lua_file_with_args("luajit", &source, &[argument, raw_dump_arg.as_str()])
+            .map_err(|error| luajit_method_contract_failure(entry, error))?;
+    if !command_output.success() {
+        return Err(luajit_method_contract_failure(
+            entry,
+            command_output.render(),
+        ));
+    }
+    let dump = fs::read(&raw_dump).map_err(|error| {
+        luajit_method_contract_failure(
+            entry,
+            format!("read {} failed: {error}", repo_relative_display(&raw_dump)),
+        )
+    })?;
+    write_output_file(&artifact, &dump).map_err(|error| {
+        luajit_method_contract_failure(
+            entry,
+            format!("write {} failed: {error}", repo_relative_display(&artifact)),
+        )
+    })?;
+    let mut options = decompile_options(entry);
+    options.target_stage = DecompileStage::Transformer;
+    let state = decompile(&dump, options)
+        .map_err(|error| luajit_method_contract_failure(entry, error.to_string()))?
+        .state;
+    let raw = state.raw_chunk.ok_or_else(|| {
+        luajit_method_contract_failure(entry, "method fixture produced no raw chunk")
+    })?;
+    let lowered = state.lowered.ok_or_else(|| {
+        luajit_method_contract_failure(entry, "method fixture produced no lowered chunk")
+    })?;
+    Ok((raw, lowered))
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(super) enum LargeMethodSignature {
+    Method,
+    Dot,
+}
+
+pub(super) fn large_method_signature(
+    raw: &RawProto,
+    proto: &LoweredProto,
+) -> Option<LargeMethodSignature> {
+    let DialectConstPoolExtra::LuaJit(constants) = &raw.common.constants.extra else {
+        return None;
+    };
+    if constants.kgc_entries.len() <= u8::MAX as usize {
+        return None;
+    }
+
+    if let [
+        ..,
+        LowInstr::Move(snapshot),
+        LowInstr::LoadConst(key),
+        LowInstr::GetTable(get),
+        LowInstr::TailCall(call),
+    ] = proto.instrs.as_slice()
+    {
+        let method_args = matches!(call.args, ValuePack::Fixed(args) if args.start == snapshot.dst && args.len == 1);
+        if snapshot.src == Reg(0)
+            && key.dst.index() == snapshot.dst.index() + 1
+            && get.dst == call.callee
+            && get.base == AccessBase::Reg(snapshot.dst)
+            && get.key == AccessKey::Const(key.value)
+            && get.kind == GetTableKind::Method
+            && call.kind == CallKind::Method
+            && call.method_name.map(|hint| hint.const_ref) == Some(key.value)
+            && method_args
+        {
+            return Some(LargeMethodSignature::Method);
+        }
+    }
+
+    if let [
+        ..,
+        LowInstr::LoadConst(key),
+        LowInstr::GetTable(get),
+        LowInstr::Move(arg),
+        LowInstr::TailCall(call),
+    ] = proto.instrs.as_slice()
+    {
+        let explicit_arg =
+            matches!(call.args, ValuePack::Fixed(args) if args.start == arg.dst && args.len == 1);
+        if arg.src == Reg(0)
+            && get.dst == call.callee
+            && get.base == AccessBase::Reg(arg.src)
+            && get.key == AccessKey::Reg(key.dst)
+            && get.kind == GetTableKind::Normal
+            && call.kind == CallKind::Normal
+            && call.method_name.is_none()
+            && explicit_arg
+        {
+            return Some(LargeMethodSignature::Dot);
+        }
+    }
+    None
+}
+
+pub(super) fn bypassed_method_signature(proto: &LoweredProto) -> bool {
+    let [
+        ..,
+        LowInstr::Move(snapshot),
+        LowInstr::GetTable(get),
+        LowInstr::TailCall(call),
+    ] = proto.instrs.as_slice()
+    else {
+        return false;
+    };
+    matches!(call.args, ValuePack::Fixed(args) if args.start == snapshot.dst && args.len == 1)
+        && snapshot.src == Reg(0)
+        && get.dst == call.callee
+        && get.base == AccessBase::Reg(snapshot.src)
+        && matches!(get.key, AccessKey::Const(_))
+        && get.kind == GetTableKind::Normal
+        && call.kind == CallKind::Normal
+        && call.method_name.is_none()
+}
+
+pub(super) fn luajit_builtin_contract_failure(
+    entry: &LuaCaseManifestEntry,
+    detail: impl Into<String>,
+) -> TestFailure {
+    let detail = detail.into();
+    TestFailure::new(
+        FailureKind::LuaJitBuiltinContractAssertionFailed,
+        "LuaJIT builtin contract failed",
+        format!(
+            "LuaJIT builtin contract failed for {}: {detail}",
+            entry.path
+        ),
+    )
+}
+
+pub(super) fn luajit_method_contract_failure(
+    entry: &LuaCaseManifestEntry,
+    detail: impl Into<String>,
+) -> TestFailure {
+    TestFailure::new(
+        FailureKind::LuaJitMethodProtocolContractAssertionFailed,
+        "LuaJIT method protocol contract failed",
+        format!(
+            "LuaJIT method protocol contract failed for {}: {}",
+            entry.path,
+            detail.into()
+        ),
+    )
+}
+
+pub(super) fn run_unsupported_island_contract(
+    entry: &LuaCaseManifestEntry,
+    jump_pc: usize,
+    target_pc: usize,
+) -> Result<TestSuccess, TestFailure> {
+    let mut chunk = compile_manifest_case(entry);
+    patch_lua51_main_jump(&mut chunk, jump_pc, target_pc).map_err(|detail| {
+        TestFailure::new(
+            FailureKind::StructureContractAssertionFailed,
+            "prepare unsupported island fixture failed",
+            detail,
+        )
+    })?;
+
+    let mut structure_options = decompile_options(entry);
+    structure_options.target_stage = DecompileStage::Structure;
+    let structure = decompile(&chunk, structure_options).map_err(|error| {
+        structure_contract_failure(format!(
+            "unsupported island fixture failed before the frozen StructurePlan: {error}"
+        ))
+    })?;
+    let facts =
+        structure.state.structure_facts.as_ref().ok_or_else(|| {
+            structure_contract_failure("structure stage returned no StructureFacts")
+        })?;
+    let ready = facts.ready().ok_or_else(|| {
+        structure_contract_failure("structure fixture unexpectedly produced a failed proto")
+    })?;
+    let has_island = ready
+        .plan()
+        .regions()
+        .any(|(_, region)| matches!(region, RegionPlan::Unstructured { .. }));
+    let requires_goto = ready
+        .plan()
+        .requirements()
+        .unavailable_features()
+        .contains(&ControlFlowFeature::GotoLabel);
+    if !has_island || !requires_goto {
+        return Err(structure_contract_failure(format!(
+            "mutated Lua 5.1 fixture did not freeze an unavailable goto island: island={has_island}, requires_goto={requires_goto}"
+        )));
+    }
+
+    let mut hir_options = decompile_options(entry);
+    hir_options.target_stage = DecompileStage::Hir;
+    let hir_result = decompile(&chunk, hir_options).map_err(|error| {
+        structure_contract_failure(format!(
+            "unsupported island fixture failed before the frozen HIR exit diagnostic: {error}"
+        ))
+    })?;
+    let hir = hir_result
+        .state
+        .hir
+        .as_ref()
+        .ok_or_else(|| structure_contract_failure("HIR stage returned no HirModule"))?;
+    match lower_ast(
+        hir,
+        AstTargetDialect::new(DecompileDialect::Lua51),
+        GenerateMode::Strict,
+    ) {
+        Err(AstLowerError::UnsupportedFeature {
+            dialect: DecompileDialect::Lua51,
+            feature: "goto/label",
+            context: "HIR exit diagnostics",
+        }) => {}
+        Err(error) => {
+            return Err(structure_contract_failure(format!(
+                "direct HIR-to-AST lowering returned the wrong unsupported-island error: {error}"
+            )));
+        }
+        Ok(_) => {
+            return Err(structure_contract_failure(
+                "direct HIR-to-AST lowering accepted an unavailable goto island",
+            ));
+        }
+    }
+    lower_ast(
+        hir,
+        AstTargetDialect::new(DecompileDialect::Lua52),
+        GenerateMode::Strict,
+    )
+    .map_err(|error| {
+        structure_contract_failure(format!(
+            "direct HIR-to-AST lowering rejected the same required goto for a capable target: {error}"
+        ))
+    })?;
+    let direct_permissive = lower_ast(
+        hir,
+        AstTargetDialect::new(DecompileDialect::Lua51),
+        GenerateMode::Permissive,
+    )
+    .map_err(|error| {
+        structure_contract_failure(format!(
+            "direct permissive HIR-to-AST lowering rejected an unsupported island: {error}"
+        ))
+    })?;
+    let direct_diagnostic = match direct_permissive.body.stmts.first() {
+        Some(AstStmt::Error(diagnostic)) if diagnostic.starts_with("HIR exit diagnostics:") => {
+            diagnostic
+        }
+        _ => {
+            return Err(structure_contract_failure(
+                "direct permissive HIR-to-AST lowering did not preserve the HIR exit diagnostic",
+            ));
+        }
+    };
+
+    let mut strict_options = decompile_options(entry);
+    strict_options.generate.mode = GenerateMode::Strict;
+    match decompile(&chunk, strict_options) {
+        Err(DecompileError::Ast(AstLowerError::UnsupportedFeature {
+            dialect: DecompileDialect::Lua51,
+            feature: "goto/label",
+            context: "HIR exit diagnostics",
+        })) => {}
+        Err(error) => {
+            return Err(structure_contract_failure(format!(
+                "strict mode returned the wrong unsupported-island error: {error}"
+            )));
+        }
+        Ok(_) => {
+            return Err(structure_contract_failure(
+                "strict mode accepted an unavailable goto island",
+            ));
+        }
+    }
+
+    let mut permissive_options = decompile_options(entry);
+    permissive_options.generate.mode = GenerateMode::Permissive;
+    let permissive = decompile(&chunk, permissive_options).map_err(|error| {
+        structure_contract_failure(format!(
+            "permissive mode rejected an unsupported island: {error}"
+        ))
+    })?;
+    let generated =
+        permissive.state.generated.as_ref().ok_or_else(|| {
+            structure_contract_failure("permissive mode returned no generated chunk")
+        })?;
+    if generated.kind != GeneratedChunkKind::DiagnosticPseudocode
+        || !generated
+            .source
+            .contains("-- [unluac error] diagnostic pseudocode:")
+        || !generated.source.contains("HIR exit diagnostics:")
+        || !generated.source.contains(direct_diagnostic)
+    {
+        return Err(structure_contract_failure(format!(
+            "permissive mode did not preserve the plan diagnostic contract: kind={:?}\n{}",
+            generated.kind, generated.source
+        )));
+    }
+
+    let assertions = read_readability_assertions(entry.path)?;
+    assert_readability(
+        "permissive",
+        &generated.source,
+        permissive.state.readability.as_ref(),
+        permissive.state.naming.as_ref(),
+        entry,
+        &assertions,
+        true,
+    )?;
+
+    Ok(TestSuccess { proto_count: 1 })
+}
+
+pub(super) fn structure_contract_failure(detail: impl Into<String>) -> TestFailure {
+    TestFailure::new(
+        FailureKind::StructureContractAssertionFailed,
+        "StructurePlan strict/permissive contract failed",
+        detail,
+    )
+}

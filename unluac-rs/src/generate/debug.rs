@@ -1,0 +1,49 @@
+//! Generate 层调试输出。
+//!
+//! 聚焦策略：Generate 的产物是最终 Lua 源码，语法完整性依赖文件级结构（顶层
+//! `return`、重复 `end` 匹配等），任何局部裁剪都会产出非法 Lua。所以这一层
+//! stage dump 入口直接从主 pipeline state 读取最终生成结果。不支持 `--proto` /
+//! `--proto-depth`：若用户传了 `--proto` 这里只会打一条
+//! 提示行指向 `--stop-after ast --proto N`，然后照样 dump 完整文件。
+
+use std::fmt::Write as _;
+
+use crate::debug::{
+    DebugColorMode, DebugDetail, DebugFilters, colorize_debug_text, define_stage_dump,
+};
+
+use super::common::GeneratedChunk;
+
+define_stage_dump! {
+    /// Generate 阶段的调试导出。
+    pub fn dump_generate(state, options) => Generate,
+        dump_generated_chunk(
+            state.require_generated()?,
+            options.detail,
+            &options.filters,
+            options.color
+        );
+}
+
+/// 输出 Generate 的调试文本。
+fn dump_generated_chunk(
+    chunk: &GeneratedChunk,
+    detail: DebugDetail,
+    filters: &DebugFilters,
+    color: DebugColorMode,
+) -> String {
+    let mut output = String::new();
+    let _ = writeln!(output, "===== Dump Generate =====");
+    let _ = writeln!(output, "generate detail={}", <&'static str>::from(detail));
+    let _ = writeln!(output, "target={}", chunk.dialect);
+    let _ = writeln!(output, "kind={}", <&'static str>::from(chunk.kind));
+    if filters.proto.is_some() {
+        let _ = writeln!(
+            output,
+            "note: --proto has no effect on generate stage (final source would not be syntactically valid if sliced); use --stop-after ast --proto N to preview a single function",
+        );
+    }
+    let _ = writeln!(output);
+    let _ = write!(output, "{}", chunk.source);
+    colorize_debug_text(&output, color)
+}

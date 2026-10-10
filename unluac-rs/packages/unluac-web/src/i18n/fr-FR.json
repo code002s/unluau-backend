@@ -1,0 +1,223 @@
+{
+  "app": {
+    "title": "unluac-web",
+    "subtitle": "Lua Décompilateur"
+  },
+  "header": {
+    "settings": "Paramètres",
+    "theme": {
+      "light": "Mode clair",
+      "dark": "Mode sombre",
+      "system": "Système"
+    },
+    "language": "Langue"
+  },
+  "filePanel": {
+    "title": "Fichiers",
+    "dropHint": "Déposez les fichiers bytecode ici",
+    "openFile": "Ouvrir un fichier",
+    "openFolder": "Ouvrir un dossier",
+    "empty": "Aucun fichier",
+    "status": {
+      "pending": "En attente",
+      "processing": "Traitement",
+      "success": "Succès",
+      "error": "Erreur",
+      "skipped": "Ignoré (fichier source)"
+    },
+    "noFiles": "Aucun fichier correspondant",
+    "globDialog": {
+      "title": "Entrez le modèle de correspondance (glob)",
+      "cancel": "Annuler"
+    },
+    "batchWarning": "Vous avez sélectionné {count} fichiers. La décompilation par lot peut prendre du temps. Continuer ?",
+    "progress": "{done}/{total} terminés",
+    "batchStats": "{success} réussis, {error} échoués",
+    "dismissStats": "Fermer",
+    "contextMenu": {
+      "recompile": "Recompiler",
+      "compare": "Comparer avec…",
+      "download": "Télécharger le résultat",
+      "remove": "Supprimer"
+    },
+    "folderContextMenu": {
+      "removeFolder": "Supprimer le dossier"
+    },
+    "sourceTag": "Source",
+    "fileDialect": "Modifier le dialecte Lua de ce fichier"
+  },
+  "codeView": {
+    "placeholder": "Sélectionnez un fichier à décompiler",
+    "copy": "Copier",
+    "copied": "Copié",
+    "download": "Télécharger",
+    "downloadAll": "Tout télécharger",
+    "fontSize": "Taille de police",
+    "error": "Échec de la décompilation",
+    "modified": "Modifié",
+    "modifiedHint": "Le contenu a été modifié manuellement et diffère du résultat de décompilation original",
+    "restore": "Restaurer l'original",
+    "restoreConfirm": "Annuler les modifications et restaurer le résultat de décompilation original ?"
+  },
+  "tabs": {
+    "code": "Source",
+    "protos": "Proto",
+    "cfg": "CFG",
+    "diff": "Comparaison",
+    "contextMenu": {
+      "close": "Fermer",
+      "closeOthers": "Fermer les autres",
+      "closeRight": "Fermer à droite",
+      "closeAll": "Tout fermer"
+    }
+  },
+  "analysis": {
+    "loading": "Analyse en cours…",
+    "noFile": "Sélectionnez un fichier pour voir l'analyse",
+    "noData": "Aucune donnée d'analyse structurelle",
+    "noDataHint": "Nécessite un module WASM avec l'export decompileRich",
+    "sourceFile": "Ce fichier est un fichier source, pas besoin de décompilation",
+    "error": "Erreur d'analyse",
+    "selectProto": "Sélectionner un Proto",
+    "protoGraph": {
+      "root": "Proto racine",
+      "params": "Paramètres",
+      "lines": "Lignes",
+      "vararg": "Arguments variables",
+      "upvalues": "Upvalues",
+      "constants": "Constantes",
+      "instructions": "Instructions"
+    },
+    "constants": {
+      "title": "Constantes",
+      "empty": "Aucune constante",
+      "type": "Type",
+      "value": "Valeur"
+    },
+    "cfgViewer": {
+      "proto": "Proto",
+      "entry": "Entrée",
+      "exit": "Sortie",
+      "blocks": "Blocs",
+      "edges": "Arêtes",
+      "bytecode": "Bytecode",
+      "focusHint": "Focus sur {block} (voisinage à {hops} sauts). Double-cliquez sur un autre bloc pour changer.",
+      "clearFocus": "Tout afficher"
+    }
+  },
+  "settings": {
+    "title": "Paramètres",
+    "dialect": "Dialecte Lua",
+    "tabs": {
+      "general": "Général",
+      "advanced": "Avancé",
+      "parse": "Analyse",
+      "readability": "Lisibilité",
+      "naming": "Nommage",
+      "generate": "Génération",
+      "about": "À propos"
+    },
+    "parse": {
+      "title": "Options d'analyse",
+      "mode": "Mode d'analyse",
+      "stringEncoding": "Encodage des chaînes",
+      "stringDecodeMode": "Mode de décodage des chaînes",
+      "ignoreDebug": "Ignorer les informations de débogage"
+    },
+    "readability": {
+      "title": "Options de lisibilité",
+      "returnInlineMaxComplexity": "Complexité max inline de return",
+      "indexInlineMaxComplexity": "Complexité max inline d'index",
+      "argsInlineMaxComplexity": "Complexité max inline d'arguments",
+      "accessBaseInlineMaxComplexity": "Complexité max inline de base d'accès"
+    },
+    "naming": {
+      "title": "Options de nommage",
+      "mode": "Mode de nommage",
+      "debugLikeIncludeFunction": "Inclure le nom de fonction dans debug-like"
+    },
+    "generate": {
+      "title": "Options de génération",
+      "mode": "Mode de génération",
+      "indentWidth": "Largeur d'indentation",
+      "maxLineLength": "Longueur max de ligne",
+      "quoteStyle": "Style de guillemets",
+      "tableStyle": "Style de table",
+      "comment": "Émettre des commentaires"
+    },
+    "tips": {
+      "dialect": "Uniquement pour les nouveaux fichiers importés. Cliquez sur la version d’un fichier pour modifier son dialecte.",
+      "generateMode": "Stratégie de gestion des erreurs. strict : arrêt sur syntaxe non prise en charge ou erreur ; permissive : produire autant que possible. CLI : --generate-mode / -g",
+      "parseMode": "Rigueur de l'analyseur. strict : validation stricte ; permissive : tolérer le bytecode non standard. CLI : --parse-mode / -p",
+      "stringEncoding": "Encodage pour le décodage des constantes de chaînes. CLI : --encoding / -e",
+      "stringDecodeMode": "Comportement en cas d'échec du décodage de chaîne. strict : erreur ; lossy : remplacer par des marqueurs. CLI : --decode-mode / -m",
+      "ignoreDebug": "Valide les sections de débogage sans les utiliser pour la récupération ni les commentaires générés. CLI : --ignore-debug",
+      "returnInlineMaxComplexity": "Complexité max des expressions inline dans les instructions return. CLI : --return-inline-max-complexity",
+      "indexInlineMaxComplexity": "Complexité max des expressions inline dans les index de table. CLI : --index-inline-max-complexity",
+      "argsInlineMaxComplexity": "Complexité max des expressions inline dans les arguments d'appel. CLI : --args-inline-max-complexity",
+      "accessBaseInlineMaxComplexity": "Complexité max des expressions inline dans les bases d'accès aux tables. CLI : --access-base-inline-max-complexity",
+      "namingMode": "Stratégie de repli sans nom de débogage valide. Tous les modes préfèrent les noms de débogage. CLI : --naming-mode / -n",
+      "debugLikeIncludeFunction": "En mode debug-like, inclure ou non les noms en forme de fonction. CLI : --debug-like-include-function",
+      "indentWidth": "Largeur d'indentation (nombre d'espaces). CLI : --indent-width",
+      "maxLineLength": "Longueur maximale de ligne préférée pour le code généré. CLI : --max-line-length",
+      "quoteStyle": "Style de guillemets pour les chaînes. prefer-double : préférer \" ; prefer-single : préférer ' ; min-escape : minimiser les échappements. CLI : --quote-style",
+      "tableStyle": "Mise en page du constructeur de table. compact : ligne unique ; balanced : automatique ; expanded : une entrée par ligne. CLI : --table-style",
+      "comment": "Émettre ou non des commentaires et métadonnées dans le code généré. CLI : --comment"
+    },
+    "share": {
+      "button": "Copier le lien de partage",
+      "copied": "Lien copié dans le presse-papiers",
+      "cliButton": "Copier les arguments CLI",
+      "cliCopied": "Arguments CLI copiés",
+      "reset": "Réinitialiser"
+    },
+    "about": {
+      "title": "À propos",
+      "repo": "Dépôt GitHub",
+      "version": "Version",
+      "summary": "Analysez et décompilez du bytecode Lua directement dans le navigateur",
+      "description": "unluac-web s'appuie sur unluac-rs et WebAssembly pour consulter rapidement le résultat décompilé, comparer les sorties et explorer les vues Proto / CFG lorsque plus de structure est nécessaire.",
+      "metaTitle": "Informations du projet",
+      "highlights": {
+        "multiDialect": {
+          "title": "Prise en charge multi-versions et multi-dialectes",
+          "description": "Couvre Lua 5.1–5.5, LuaJIT et Luau, avec un comportement du parseur et du générateur configurable selon le dialecte cible."
+        },
+        "localFirst": {
+          "title": "Exécution entièrement locale",
+          "description": "Toute la décompilation et l'analyse sont effectuées dans le navigateur courant, sans envoyer le bytecode à un serveur."
+        },
+        "tooling": {
+          "title": "Plus qu'un simple code source",
+          "description": "En plus du code généré, vous pouvez traiter des fichiers en lot, comparer les sorties et inspecter les analyses structurées Proto / CFG."
+        }
+      }
+    },
+    "importDialect": "Dialecte par défaut des nouveaux fichiers"
+  },
+  "diff": {
+    "left": "Gauche",
+    "right": "Droite",
+    "selectFile": "Sélectionner un fichier",
+    "hint": "Sélectionnez deux fichiers décompilés à comparer"
+  },
+  "workspace": {
+    "local": "Exécution locale",
+    "files": "Espace de travail",
+    "searchFiles": "Rechercher un fichier…",
+    "fileHint": "Ouvrez un fichier ou un dossier. Chaque fichier conserve sa version de Lua.",
+    "history": "L’historique reste dans ce navigateur",
+    "fileActions": "Actions du fichier",
+    "headline": "Le bytecode Lua,",
+    "headlineAccent": "à nouveau lisible.",
+    "description": "Retrouvez le code source et explorez la structure du programme. Dans votre navigateur.",
+    "importHint": "Tous les noms de fichiers. Un fichier ou un dossier entier.",
+    "privacy": "Les fichiers sont traités sur votre appareil, sans envoi au serveur.",
+    "multiDialect": "Plusieurs dialectes",
+    "explore": "Explorer le code",
+    "exploreHint": "Consultez les fonctions, constantes et flux de contrôle.",
+    "analysis": "Structure",
+    "wrapLines": "Retour à la ligne",
+    "settingsHint": "Les réglages s’appliquent automatiquement. Chaque fichier conserve son dialecte Lua."
+  }
+}

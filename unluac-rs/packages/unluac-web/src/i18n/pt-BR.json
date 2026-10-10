@@ -1,0 +1,223 @@
+{
+  "app": {
+    "title": "unluac-web",
+    "subtitle": "Lua Decompilador"
+  },
+  "header": {
+    "settings": "Configurações",
+    "theme": {
+      "light": "Modo claro",
+      "dark": "Modo escuro",
+      "system": "Sistema"
+    },
+    "language": "Idioma"
+  },
+  "filePanel": {
+    "title": "Arquivos",
+    "dropHint": "Arraste arquivos de bytecode aqui",
+    "openFile": "Abrir arquivo",
+    "openFolder": "Abrir pasta",
+    "empty": "Sem arquivos",
+    "status": {
+      "pending": "Pendente",
+      "processing": "Processando",
+      "success": "Sucesso",
+      "error": "Erro",
+      "skipped": "Ignorado (arquivo fonte)"
+    },
+    "noFiles": "Nenhum arquivo correspondente",
+    "globDialog": {
+      "title": "Insira padrão de correspondência (glob)",
+      "cancel": "Cancelar"
+    },
+    "batchWarning": "Foram selecionados {count} arquivos. A descompilação em lote pode demorar. Continuar?",
+    "progress": "{done}/{total} concluídos",
+    "batchStats": "{success} com sucesso, {error} com falha",
+    "dismissStats": "Fechar",
+    "contextMenu": {
+      "recompile": "Recompilar",
+      "compare": "Comparar com…",
+      "download": "Baixar resultado",
+      "remove": "Remover"
+    },
+    "folderContextMenu": {
+      "removeFolder": "Remover pasta"
+    },
+    "sourceTag": "Código-fonte",
+    "fileDialect": "Alterar o dialeto Lua deste arquivo"
+  },
+  "codeView": {
+    "placeholder": "Selecione um arquivo para descompilar",
+    "copy": "Copiar",
+    "copied": "Copiado",
+    "download": "Baixar",
+    "downloadAll": "Baixar tudo",
+    "fontSize": "Tamanho da fonte",
+    "error": "Falha na descompilação",
+    "modified": "Modificado",
+    "modifiedHint": "O conteúdo foi editado manualmente e difere do resultado de descompilação original",
+    "restore": "Restaurar original",
+    "restoreConfirm": "Descartar as edições e restaurar o resultado de descompilação original?"
+  },
+  "tabs": {
+    "code": "Fonte",
+    "protos": "Proto",
+    "cfg": "CFG",
+    "diff": "Diferenças",
+    "contextMenu": {
+      "close": "Fechar",
+      "closeOthers": "Fechar outras",
+      "closeRight": "Fechar à direita",
+      "closeAll": "Fechar todas"
+    }
+  },
+  "analysis": {
+    "loading": "Analisando…",
+    "noFile": "Selecione um arquivo para ver a análise",
+    "noData": "Sem dados de análise estrutural",
+    "noDataHint": "Requer módulo WASM com exportação decompileRich",
+    "sourceFile": "Este arquivo é um arquivo fonte, não precisa de descompilação",
+    "error": "Erro de análise",
+    "selectProto": "Selecionar Proto",
+    "protoGraph": {
+      "root": "Proto raiz",
+      "params": "Parâmetros",
+      "lines": "Linhas",
+      "vararg": "Argumentos variáveis",
+      "upvalues": "Upvalues",
+      "constants": "Constantes",
+      "instructions": "Instruções"
+    },
+    "constants": {
+      "title": "Constantes",
+      "empty": "Sem constantes",
+      "type": "Tipo",
+      "value": "Valor"
+    },
+    "cfgViewer": {
+      "proto": "Proto",
+      "entry": "Entrada",
+      "exit": "Saída",
+      "blocks": "Blocos",
+      "edges": "Arestas",
+      "bytecode": "Bytecode",
+      "focusHint": "Focado em {block} (vizinhança de {hops} saltos). Clique duplo em outro bloco para alternar.",
+      "clearFocus": "Mostrar tudo"
+    }
+  },
+  "settings": {
+    "title": "Configurações",
+    "dialect": "Dialeto Lua",
+    "tabs": {
+      "general": "Geral",
+      "parse": "Análise",
+      "readability": "Legibilidade",
+      "naming": "Nomeação",
+      "generate": "Geração",
+      "about": "Sobre"
+    },
+    "parse": {
+      "title": "Opções de análise",
+      "mode": "Modo de análise",
+      "stringEncoding": "Codificação de strings",
+      "stringDecodeMode": "Modo de decodificação de strings",
+      "ignoreDebug": "Ignorar informações de depuração"
+    },
+    "readability": {
+      "title": "Opções de legibilidade",
+      "returnInlineMaxComplexity": "Complexidade máxima inline de return",
+      "indexInlineMaxComplexity": "Complexidade máxima inline de índice",
+      "argsInlineMaxComplexity": "Complexidade máxima inline de argumentos",
+      "accessBaseInlineMaxComplexity": "Complexidade máxima inline de base de acesso"
+    },
+    "naming": {
+      "title": "Opções de nomenclatura",
+      "mode": "Modo de nomenclatura",
+      "debugLikeIncludeFunction": "Incluir nome da função no debug-like"
+    },
+    "generate": {
+      "title": "Opções de geração",
+      "mode": "Modo de geração",
+      "indentWidth": "Largura da indentação",
+      "maxLineLength": "Comprimento máximo da linha",
+      "quoteStyle": "Estilo de aspas",
+      "tableStyle": "Estilo de tabela",
+      "comment": "Emitir comentários"
+    },
+    "tips": {
+      "dialect": "Aplica-se apenas a novos arquivos importados. Clique na versão de um arquivo para alterar seu dialeto.",
+      "advanced": "Avançado",
+      "generateMode": "Estratégia de tratamento de erros. strict: parar em sintaxe sem suporte ou erro; permissive: gerar o máximo possível. CLI: --generate-mode / -g",
+      "parseMode": "Rigor do analisador. strict: validação rigorosa; permissive: tolerar bytecode não padrão. CLI: --parse-mode / -p",
+      "stringEncoding": "Codificação para decodificação de constantes de string. CLI: --encoding / -e",
+      "stringDecodeMode": "Comportamento em falha de decodificação de string. strict: erro; lossy: substituir por marcadores. CLI: --decode-mode / -m",
+      "ignoreDebug": "Valida as seções de depuração, mas não as usa na recuperação nem nos comentários gerados. CLI: --ignore-debug",
+      "returnInlineMaxComplexity": "Complexidade máxima de expressão inline em instruções return. CLI: --return-inline-max-complexity",
+      "indexInlineMaxComplexity": "Complexidade máxima de expressão inline em índices de tabela. CLI: --index-inline-max-complexity",
+      "argsInlineMaxComplexity": "Complexidade máxima de expressão inline em argumentos de chamada. CLI: --args-inline-max-complexity",
+      "accessBaseInlineMaxComplexity": "Complexidade máxima de expressão inline em bases de acesso a tabela. CLI: --access-base-inline-max-complexity",
+      "namingMode": "Estratégia alternativa quando não há nome de depuração válido. Todos os modos preferem nomes de depuração. CLI: --naming-mode / -n",
+      "debugLikeIncludeFunction": "No modo debug-like, se inclui nomes com forma de função. CLI: --debug-like-include-function",
+      "indentWidth": "Largura da indentação (número de espaços). CLI: --indent-width",
+      "maxLineLength": "Comprimento máximo de linha preferido para o código gerado. CLI: --max-line-length",
+      "quoteStyle": "Estilo de aspas para strings. prefer-double: preferir \"; prefer-single: preferir '; min-escape: minimizar escapes. CLI: --quote-style",
+      "tableStyle": "Layout do construtor de tabela. compact: linha única; balanced: automático; expanded: uma entrada por linha. CLI: --table-style",
+      "comment": "Se devem ser emitidos comentários e metadados no código gerado. CLI: --comment"
+    },
+    "share": {
+      "button": "Copiar link de compartilhamento",
+      "copied": "Link copiado para a área de transferência",
+      "cliButton": "Copiar args da CLI",
+      "cliCopied": "Args da CLI copiados",
+      "reset": "Restaurar padrões"
+    },
+    "about": {
+      "title": "Sobre",
+      "repo": "Repositório GitHub",
+      "version": "Versão",
+      "summary": "Analise e decompile bytecode Lua direto no navegador",
+      "description": "unluac-web é construído sobre unluac-rs e WebAssembly para inspecionar rapidamente o resultado decompilado, comparar saídas e explorar visões Proto / CFG quando precisar de mais estrutura.",
+      "metaTitle": "Informações do projeto",
+      "highlights": {
+        "multiDialect": {
+          "title": "Suporte a múltiplas versões e dialetos",
+          "description": "Cobre Lua 5.1–5.5, LuaJIT e Luau, com parser e gerador ajustáveis conforme o dialeto de destino."
+        },
+        "localFirst": {
+          "title": "Execução totalmente local",
+          "description": "Toda a decompilação e análise acontecem dentro do navegador atual, sem enviar bytecode para um servidor."
+        },
+        "tooling": {
+          "title": "Mais do que só código-fonte",
+          "description": "Além do código gerado, você pode processar arquivos em lote, comparar saídas e inspecionar análises estruturadas Proto / CFG."
+        }
+      }
+    },
+    "importDialect": "Dialeto padrão para novos arquivos"
+  },
+  "diff": {
+    "left": "Esquerda",
+    "right": "Direita",
+    "selectFile": "Selecionar arquivo",
+    "hint": "Selecione dois arquivos descompilados para comparar"
+  },
+  "workspace": {
+    "local": "Execução local",
+    "files": "Área de trabalho",
+    "searchFiles": "Buscar arquivo…",
+    "fileHint": "Abra um arquivo ou uma pasta. Cada arquivo mantém sua versão do Lua.",
+    "history": "O histórico fica neste navegador",
+    "fileActions": "Ações do arquivo",
+    "headline": "Bytecode Lua,",
+    "headlineAccent": "legível novamente.",
+    "description": "Recupere o código-fonte e explore a estrutura do programa. Tudo no navegador.",
+    "importHint": "Qualquer nome de arquivo. Um arquivo ou uma pasta inteira.",
+    "privacy": "Os arquivos são processados no seu dispositivo, sem envio ao servidor.",
+    "multiDialect": "Vários dialetos",
+    "explore": "Explore o código",
+    "exploreHint": "Examine funções, constantes e fluxo de controle.",
+    "analysis": "Estrutura",
+    "wrapLines": "Quebrar linhas",
+    "settingsHint": "As alterações são aplicadas automaticamente. Cada arquivo mantém seu dialeto Lua."
+  }
+}
