@@ -40,6 +40,9 @@ mod service_aliasing;
 mod table_optimizer;
 mod function_lifter;
 mod expression_folder;
+mod constant_folder;
+mod type_propagator;
+mod cfg_unroller;
 pub(crate) mod walk;
 
 use crate::debug::DebugFilters;
