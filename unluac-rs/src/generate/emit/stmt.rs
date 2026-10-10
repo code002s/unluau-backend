@@ -75,26 +75,24 @@ impl<'a> Emitter<'a> {
             .bindings
             .iter()
             .map(|binding| {
-                let name = self.names.resolve_binding_ref(function, binding)?;
+                let name = self.names.resolve_binding_ref(function, &binding.id)?;
                 let mut type_annotation = None;
 
-                // Infer type from naming hints or common Luau patterns
-                if let Some(hint) = self.names.get_hint(function, binding) {
-                    type_annotation = match hint.text.as_str() {
-                        "Players" => Some("Player"),
-                        "Workspace" => Some("Model"),
-                        "RunService" => Some("RunService"),
-                        "TweenService" => Some("TweenService"),
-                        "HttpService" => Some("HttpService"),
-                        "UserInputService" => Some("UserInputService"),
-                        "ReplicatedStorage" => Some("ReplicatedStorage"),
-                        "TweenInfo" => Some("TweenInfo"),
-                        "Vector3" => Some("Vector3"),
-                        "CFrame" => Some("CFrame"),
-                        "Color3" => Some("Color3"),
-                        _ => None,
-                    };
-                }
+                // Infer type from the resolved name based on Luau professional patterns
+                type_annotation = match name.as_str() {
+                    "Players" | "player" => Some("Player"),
+                    "Workspace" | "workspace" => Some("Model"),
+                    "RunService" => Some("RunService"),
+                    "TweenService" => Some("TweenService"),
+                    "HttpService" => Some("HttpService"),
+                    "UserInputService" => Some("UserInputService"),
+                    "ReplicatedStorage" => Some("ReplicatedStorage"),
+                    "TweenInfo" => Some("TweenInfo"),
+                    "Vector3" => Some("Vector3"),
+                    "CFrame" => Some("CFrame"),
+                    "Color3" => Some("Color3"),
+                    _ => None,
+                };
 
                 let name_doc = Doc::text(name);
                 let type_doc = type_annotation.map(|t| Doc::concat([Doc::text(": "), Doc::text(t)]));

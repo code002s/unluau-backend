@@ -44,7 +44,7 @@ pub(super) fn choose_param_candidate(
             proto.id,
             "p",
             index,
-            alphabetical_name(index).unwrap_or_else(|| format!("arg{}", index + 1)),
+            &alphabetical_name(index).unwrap_or_else(|| format!("arg{}", index + 1)),
         );
     }
     if options.mode == NamingMode::Heuristic && !ast_facts.used_params.contains(&param) {
