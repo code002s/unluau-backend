@@ -15,6 +15,7 @@ from .naming import rename_generic_names
 from .printer import print_chunk
 from .scopes import Resolver
 from .services import hoist_services
+from .simplify import simplify_expressions
 from .syntax import SyntaxProblem, parse
 
 STRICT_HEADER = "--!strict\n"
@@ -22,6 +23,7 @@ STRICT_HEADER = "--!strict\n"
 
 @dataclass(frozen=True)
 class CleanupOptions:
+    simplify: bool = True
     rename: bool = True
     cache_services: bool = True
     flatten: bool = True
@@ -48,6 +50,8 @@ def clean_source(source: str, options: CleanupOptions = CleanupOptions()) -> Cle
 
 def _clean(source: str, options: CleanupOptions) -> CleanupResult:
     chunk = parse(source)
+    if options.simplify:
+        simplify_expressions(chunk)
     resolver = Resolver(bind=True).run(chunk)
     if options.rename:
         rename_generic_names(chunk, resolver)
