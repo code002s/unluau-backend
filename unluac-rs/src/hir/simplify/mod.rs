@@ -14,12 +14,14 @@ mod debug_scopes;
 pub(super) mod decision;
 mod expr_facts;
 mod generic_for_iterators;
+mod guard_clauses;
 mod label_refs;
 mod lexical_cfg;
 mod local_shapes;
 mod locals;
 mod logical_simplify;
 mod mention;
+mod method_idioms;
 mod method_protocol;
 mod method_rewrite_transactions;
 mod object_flow;
@@ -32,6 +34,7 @@ mod stmt_plan;
 mod table_constructors;
 mod temp_inline;
 mod temp_touch;
+mod string_interpolation;
 pub(crate) mod walk;
 
 use crate::debug::DebugFilters;
@@ -213,6 +216,24 @@ const PASS_DESCRIPTORS: &[PassDescriptor<HirInvalidation>] = &[
             ClosureCapture,
         ],
     },
+    PassDescriptor {
+        name: "guard-clauses",
+        phase: PassPhase::Normal,
+        depends_on: &[BlockStructure],
+        invalidates: &[BlockStructure],
+    },
+    PassDescriptor {
+        name: "method-idioms",
+        phase: PassPhase::Normal,
+        depends_on: &[TempChain, LocalBinding],
+        invalidates: &[LocalBinding],
+    },
+    PassDescriptor {
+        name: "string-interpolation",
+        phase: PassPhase::Normal,
+        depends_on: &[LogicalExpr],
+        invalidates: &[LogicalExpr],
+    },
     // ── Deferred phase ──
     PassDescriptor {
         name: "eliminate-decisions",
@@ -361,6 +382,15 @@ pub(super) fn simplify_hir(
                 }
                 if index == 17 {
                     return call_frames::restore_expanded_frames(module, promotion_facts, dialect);
+                }
+                if index == 23 {
+                    return guard_clauses::simplify_guard_clauses_in_proto(proto);
+                }
+                if index == 24 {
+                    return method_idioms::simplify_method_calls_in_proto(proto);
+                }
+                if index == 25 {
+                    return string_interpolation::simplify_string_interpolation_in_proto(proto);
                 }
                 let effects = (matches!(index, 3 | 15 | 16 | 19)
                     || index == 4 && dialect == DecompileDialect::Luau)
